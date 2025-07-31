@@ -8,11 +8,14 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: gc-simple-crud-demo
   REGION: us-central1
+  GCS_BUCKET: my-project-1502729769937-cloudbuild-src
+
 jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
 
+    # These permissions are required for the OIDC token exchange
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -28,15 +31,16 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      # This new step configures gcloud to use the credentials from the auth step
+      # This step configures gcloud to use the credentials from the auth step
       - name: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
 
-      - name: 'Debug: Show Authenticated User'
-        run: 'gcloud auth list'
-
       - name: Build and Push Docker Image
         run: |-
+          # Configure gcloud to use your custom bucket for the source code
+          gcloud config set builds/gcs_source_staging_dir gs://$GCS_BUCKET/source
+
+          # Now run the build
           gcloud builds submit --tag "gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA"
 
       - name: Deploy to Cloud Run

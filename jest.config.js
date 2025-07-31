@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-
+// jest.config.js
 const nextJest = require('next/jest')
 
-// Provide the path to your Next.js app to load next.config.js and .env files in your test environment
 const createJestConfig = nextJest({
+  // Provide the path to your Next.js app to load next.config.js and .env files in your test environment
   dir: './',
 })
 
@@ -11,10 +11,11 @@ const createJestConfig = nextJest({
 const customJestConfig = {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   testEnvironment: 'jest-environment-jsdom',
-
   moduleNameMapper: {
-    // Handle module aliases (this will be automatically configured for you)
-    '^@/(.*)$': '<rootDir>/src/$1',
+    // Handle module aliases (this will be automatically configured for you soon)
+    '^@/components/(.*)$': '<rootDir>/src/components/$1',
+    '^@/lib/(.*)$': '<rootDir>/src/lib/$1',
+    '^@/context/(.*)$': '<rootDir>/src/context/$1',
   },
 }
 

@@ -1,48 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getAuth } from 'firebase-admin/auth'
-import { initializeFirebaseAdmin } from '@/lib/firebase-admin'
+import { getUserIdFromToken } from '@/lib/utils'
 
-// Initialize Firebase Admin SDK
-initializeFirebaseAdmin()
-
-// Helper function to get the user's Firebase UID from the Authorization header
-async function getUserIdFromRequest(request: Request): Promise<string | null> {
-  const authHeader = request.headers.get('Authorization')
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null
-  }
-  const token = authHeader.split('Bearer ')[1]
-  try {
-    const decodedToken = await getAuth().verifyIdToken(token)
-    return decodedToken.uid
-  } catch (error) {
-    console.error('Error verifying auth token:', error)
-    return null
-  }
-}
-
-// PATCH handler to update a task
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+// --- GET Handler ---
+export async function GET(
+  req: NextRequest,
+  context: { params: { id: string } }
 ) {
-  const { id } = await params // Await params before accessing properties
-  const userId = await getUserIdFromRequest(request)
-  const taskId = parseInt(id, 10)
-
+  const { params } = context // Destructure params from the context object
+  const userId = await getUserIdFromToken(req)
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const taskId = parseInt(params.id, 10)
   if (isNaN(taskId)) {
     return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 })
   }
 
   try {
-    const { text, completed } = await request.json()
-
-    // First, verify the task exists and belongs to the user
     const task = await prisma.task.findUnique({
       where: { id: taskId },
     })
@@ -54,18 +30,54 @@ export async function PATCH(
       )
     }
 
-    // Update the task
+    return NextResponse.json(task)
+  } catch {
+    return NextResponse.json(
+      { error: 'Failed to retrieve task' },
+      { status: 500 }
+    )
+  }
+}
+
+// --- PATCH Handler ---
+export async function PATCH(
+  req: NextRequest,
+  context: { params: { id: string } }
+) {
+  const { params } = context
+  const userId = await getUserIdFromToken(req)
+  if (!userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const taskId = parseInt(params.id, 10)
+  if (isNaN(taskId)) {
+    return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 })
+  }
+
+  try {
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+    })
+
+    if (!task || task.authorId !== userId) {
+      return NextResponse.json(
+        { error: 'Task not found or access denied' },
+        { status: 404 }
+      )
+    }
+
+    const body = await req.json()
     const updatedTask = await prisma.task.update({
       where: { id: taskId },
       data: {
-        text: text, // Will be undefined if not provided, so Prisma ignores it
-        completed: completed, // Will be undefined if not provided
+        text: body.text,
+        completed: body.completed,
       },
     })
 
     return NextResponse.json(updatedTask)
-  } catch (error) {
-    console.error(`Error updating task ${taskId}:`, error)
+  } catch {
     return NextResponse.json(
       { error: 'Failed to update task' },
       { status: 500 }
@@ -73,25 +85,23 @@ export async function PATCH(
   }
 }
 
-// DELETE handler to delete a task
+// --- DELETE Handler ---
 export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  req: NextRequest,
+  context: { params: { id: string } }
 ) {
-  const { id } = await params // Await params before accessing properties
-  const userId = await getUserIdFromRequest(request)
-  const taskId = parseInt(id, 10)
-
+  const { params } = context
+  const userId = await getUserIdFromToken(req)
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const taskId = parseInt(params.id, 10)
   if (isNaN(taskId)) {
     return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 })
   }
 
   try {
-    // Verify the task exists and belongs to the user before deleting
     const task = await prisma.task.findUnique({
       where: { id: taskId },
     })
@@ -107,9 +117,8 @@ export async function DELETE(
       where: { id: taskId },
     })
 
-    return new NextResponse(null, { status: 204 }) // 204 No Content for successful deletion
-  } catch (error) {
-    console.error(`Error deleting task ${taskId}:`, error)
+    return new NextResponse(null, { status: 204 })
+  } catch {
     return NextResponse.json(
       { error: 'Failed to delete task' },
       { status: 500 }

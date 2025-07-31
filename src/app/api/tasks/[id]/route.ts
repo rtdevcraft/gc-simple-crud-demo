@@ -7,8 +7,9 @@ export async function GET(
   req: NextRequest,
   context: { params: { id: string } }
 ) {
-  const { params } = context // Destructure params from the context object
+  const { params } = context
   const userId = await getUserIdFromToken(req)
+
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -46,6 +47,7 @@ export async function PATCH(
 ) {
   const { params } = context
   const userId = await getUserIdFromToken(req)
+
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -92,6 +94,7 @@ export async function DELETE(
 ) {
   const { params } = context
   const userId = await getUserIdFromToken(req)
+
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

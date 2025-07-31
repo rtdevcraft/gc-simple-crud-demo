@@ -1,6 +1,7 @@
+# .github/workflows/deploy.yml
+
 name: Build and Deploy to Cloud Run
 
-# This workflow runs on every push to the 'main' branch
 on:
   push:
     branches: ['master']
@@ -15,7 +16,6 @@ jobs:
     name: Deploy
     runs-on: ubuntu-latest
 
-    # These permissions are required for the OIDC token exchange
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -29,6 +29,10 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      # New debugging step
+      - name: 'Debug: Show Authenticated User'
+        run: 'gcloud auth list'
 
       - name: Build and Push Docker Image
         run: |-

@@ -3,12 +3,12 @@ name: Build and Deploy to Cloud Run
 # This workflow runs on every push to the 'main' branch
 on:
   push:
-    branches: ['main']
+    branches: ['master']
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  SERVICE_NAME: gc-simple-crud-demo # IMPORTANT: Change this to your service name
-  REGION: us-central1 # IMPORTANT: Change this to your Cloud Run region
+  SERVICE_NAME: gc-simple-crud-demo
+  REGION: us-central1
 
 jobs:
   deploy:

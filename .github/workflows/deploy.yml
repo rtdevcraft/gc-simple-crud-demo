@@ -15,6 +15,7 @@ jobs:
     name: Deploy
     runs-on: ubuntu-latest
 
+    # These permissions are required for the OIDC token exchange
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -30,15 +31,36 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      # This step configures gcloud to use the credentials from the auth step
       - name: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
 
-      - name: Build and Push Docker Image
+      - name: Submit Build Asynchronously
+        id: build
         run: |-
-          gcloud builds submit \
+          BUILD_ID=$(gcloud builds submit \
             --tag "gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA" \
             --gcs-source-staging-dir "gs://$GCS_BUCKET/source" \
-            --async
+            --async \
+            --format='value(id)')
+          echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
+
+      - name: Wait for Build to Complete by Polling
+        run: |-
+          BUILD_ID="${{ steps.build.outputs.build_id }}"
+          echo "Waiting for build: $BUILD_ID"
+
+          while true; do
+            STATUS=$(gcloud builds describe "$BUILD_ID" --format='value(status)')
+            echo "Current build status: $STATUS"
+            if [[ "$STATUS" == "SUCCESS" ]]; then
+              break
+            elif [[ "$STATUS" == "FAILURE" || "$STATUS" == "CANCELLED" || "$STATUS" == "TIMEOUT" ]]; then
+              echo "Build failed with status: $STATUS"
+              exit 1
+            fi
+            sleep 10
+          done
 
       - name: Deploy to Cloud Run
         run: |-

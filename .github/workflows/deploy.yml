@@ -8,7 +8,6 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: gc-simple-crud-demo
   REGION: us-central1
-
 jobs:
   deploy:
     name: Deploy
@@ -22,16 +21,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: 'Debug: Verify Secrets with Checksum'
-        run: |
-          echo "WIF Provider Checksum:"
-          echo -n "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}" | sha256sum
-
       - name: Authenticate to Google Cloud
+        id: auth
         uses: 'google-github-actions/auth@v2'
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      # This new step configures gcloud to use the credentials from the auth step
+      - name: Set up Cloud SDK
+        uses: 'google-github-actions/setup-gcloud@v2'
 
       - name: 'Debug: Show Authenticated User'
         run: 'gcloud auth list'

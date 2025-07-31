@@ -12,16 +12,15 @@ env:
 
 jobs:
   deploy:
-    name: Deploy
+    name: Build & Deploy
     runs-on: ubuntu-latest
 
-    # These permissions are required for the OIDC token exchange
     permissions:
       contents: 'read'
       id-token: 'write'
 
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v3
 
       - name: Authenticate to Google Cloud
@@ -31,39 +30,19 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      # This step configures gcloud to use the credentials from the auth step
-      - name: Set up Cloud SDK
+      - name: Set up Google Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
 
-      - name: Submit Build Asynchronously
-        id: build
-        run: |-
-          BUILD_ID=$(gcloud builds submit \
+      - name: Submit Cloud Build (synchronous)
+        run: |
+          SUBS="_NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }},_NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }},_NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }},_NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }},_NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }},_NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}"
+          gcloud builds submit \
             --tag "gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA" \
             --gcs-source-staging-dir "gs://$GCS_BUCKET/source" \
-            --async \
-            --format='value(id)')
-          echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
-
-      - name: Wait for Build to Complete by Polling
-        run: |-
-          BUILD_ID="${{ steps.build.outputs.build_id }}"
-          echo "Waiting for build: $BUILD_ID"
-
-          while true; do
-            STATUS=$(gcloud builds describe "$BUILD_ID" --format='value(status)')
-            echo "Current build status: $STATUS"
-            if [[ "$STATUS" == "SUCCESS" ]]; then
-              break
-            elif [[ "$STATUS" == "FAILURE" || "$STATUS" == "CANCELLED" || "$STATUS" == "TIMEOUT" ]]; then
-              echo "Build failed with status: $STATUS"
-              exit 1
-            fi
-            sleep 10
-          done
+            --substitutions="$SUBS"
 
       - name: Deploy to Cloud Run
-        run: |-
+        run: |
           gcloud run deploy $SERVICE_NAME \
             --image "gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA" \
             --region $REGION \

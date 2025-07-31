@@ -22,11 +22,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: 'Debug: Check Secrets'
+      - name: 'Debug: Verify Secrets with Checksum'
         run: |
-          echo "Project ID: ${{ secrets.GCP_PROJECT_ID }}"
-          echo "Service Account: ${{ secrets.GCP_SERVICE_ACCOUNT }}"
-          echo "WIF Provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}"
+          echo "WIF Provider Checksum:"
+          echo -n "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}" | sha256sum
 
       - name: Authenticate to Google Cloud
         uses: 'google-github-actions/auth@v2'

@@ -1,5 +1,3 @@
-# .github/workflows/deploy.yml
-
 name: Build and Deploy to Cloud Run
 
 on:
@@ -29,8 +27,8 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          debug: true # Enable verbose logging
 
-      # New debugging step
       - name: 'Debug: Show Authenticated User'
         run: 'gcloud auth list'
 

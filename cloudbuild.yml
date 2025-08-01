@@ -5,7 +5,7 @@ substitutions:
   _NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ''
   _NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ''
   _NEXT_PUBLIC_FIREBASE_APP_ID: ''
-  COMMIT_SHA: 'manual-override'
+  _COMMIT_SHA: 'manual-override'
 
 steps:
   - name: 'gcr.io/cloud-builders/docker'

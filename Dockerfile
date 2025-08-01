@@ -1,11 +1,11 @@
 # Stage 1: Installer - Install dependencies with Chainguard's dev image
-FROM cgr.dev/chainguard/node:20 AS installer
+FROM cgr.dev/chainguard/node:20-dev AS installer
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
 # Stage 2: Builder - Build the Next.js app using Chainguard dev image
-FROM cgr.dev/chainguard/node:20 AS builder
+FROM cgr.dev/chainguard/node:20-dev AS builder
 WORKDIR /app
 COPY --from=installer /app/node_modules ./node_modules
 COPY . .

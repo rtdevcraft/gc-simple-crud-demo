@@ -8,6 +8,9 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: gc-simple-crud-demo
   REGION: us-central1
+  # Artifact Registry configuration
+  AR_REPOSITORY: docker-repo
+  AR_LOCATION: us-central1
 
 jobs:
   deploy:
@@ -31,15 +34,55 @@ jobs:
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Submit Cloud Build
+      # 🔧 Auto-migrate from GCR to Artifact Registry (one-time setup)
+      - name: Migrate from GCR to Artifact Registry
         run: |
-          gcloud builds submit . \
-            --substitutions=_COMMIT_SHA=${{ github.sha }},_NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }},_NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }},_NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }},_NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }},_NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }},_NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
+          echo "Running GCR to Artifact Registry migration..."
+          gcloud artifacts docker upgrade migrate --projects=$PROJECT_ID || echo "Migration already completed or not needed"
 
+      # 📦 Ensure Artifact Registry repository exists
+      - name: Create Artifact Registry repository
+        run: |
+          gcloud artifacts repositories describe $AR_REPOSITORY \
+            --location=$AR_LOCATION \
+            --format="value(name)" || \
+          gcloud artifacts repositories create $AR_REPOSITORY \
+            --repository-format=docker \
+            --location=$AR_LOCATION \
+            --description="Docker repository for $SERVICE_NAME"
+
+      # 🔐 Configure Docker authentication for Artifact Registry
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker $AR_LOCATION-docker.pkg.dev
+
+      # 🏗️ Build and push to Artifact Registry
+      - name: Build and Push to Artifact Registry
+        run: |
+          IMAGE_URI=$AR_LOCATION-docker.pkg.dev/$PROJECT_ID/$AR_REPOSITORY/$SERVICE_NAME:${{ github.sha }}
+
+          # Build the image
+          docker build \
+            --build-arg NEXT_PUBLIC_FIREBASE_API_KEY="${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}" \
+            --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}" \
+            --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID="${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}" \
+            --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}" \
+            --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}" \
+            --build-arg NEXT_PUBLIC_FIREBASE_APP_ID="${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}" \
+            -t $IMAGE_URI .
+
+          # Push to Artifact Registry
+          docker push $IMAGE_URI
+
+          # Store image URI for deployment
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
+      # 🚀 Deploy to Cloud Run with Artifact Registry image
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy $SERVICE_NAME \
-            --image gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }} \
+            --image $IMAGE_URI \
             --region $REGION \
             --platform managed \
+            --allow-unauthenticated \
             --quiet

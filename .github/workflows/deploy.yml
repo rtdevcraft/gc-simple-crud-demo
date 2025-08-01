@@ -8,9 +8,8 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: gc-simple-crud-demo
   REGION: us-central1
-  # Update to match your existing repository name
   AR_REPOSITORY: simple-crud-demo
-  AR_LOCATION: us-central1
+  AR_LOCATION: us-west4
 
 jobs:
   deploy:
@@ -34,7 +33,7 @@ jobs:
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
 
-      # 🔐 Configure Docker authentication for Artifact Registry
+      # 🔐 Configure Docker authentication for us-west4
       - name: Configure Docker for Artifact Registry
         run: |
           gcloud auth configure-docker $AR_LOCATION-docker.pkg.dev
@@ -43,6 +42,8 @@ jobs:
       - name: Build and Push to Artifact Registry
         run: |
           IMAGE_URI=$AR_LOCATION-docker.pkg.dev/$PROJECT_ID/$AR_REPOSITORY/$SERVICE_NAME:${{ github.sha }}
+
+          echo "Building image: $IMAGE_URI"
 
           # Build the image
           docker build \

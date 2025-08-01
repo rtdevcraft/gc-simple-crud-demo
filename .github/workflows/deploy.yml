@@ -8,8 +8,8 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: gc-simple-crud-demo
   REGION: us-central1
-  # Artifact Registry configuration
-  AR_REPOSITORY: docker-repo
+  # Update to match your existing repository name
+  AR_REPOSITORY: simple-crud-demo
   AR_LOCATION: us-central1
 
 jobs:
@@ -33,23 +33,6 @@ jobs:
 
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
-
-      # 🔧 Auto-migrate from GCR to Artifact Registry (one-time setup)
-      - name: Migrate from GCR to Artifact Registry
-        run: |
-          echo "Running GCR to Artifact Registry migration..."
-          gcloud artifacts docker upgrade migrate --projects=$PROJECT_ID || echo "Migration already completed or not needed"
-
-      # 📦 Ensure Artifact Registry repository exists
-      - name: Create Artifact Registry repository
-        run: |
-          gcloud artifacts repositories describe $AR_REPOSITORY \
-            --location=$AR_LOCATION \
-            --format="value(name)" || \
-          gcloud artifacts repositories create $AR_REPOSITORY \
-            --repository-format=docker \
-            --location=$AR_LOCATION \
-            --description="Docker repository for $SERVICE_NAME"
 
       # 🔐 Configure Docker authentication for Artifact Registry
       - name: Configure Docker for Artifact Registry
@@ -77,7 +60,7 @@ jobs:
           # Store image URI for deployment
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
-      # 🚀 Deploy to Cloud Run with Artifact Registry image
+      # 🚀 Deploy to Cloud Run
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy $SERVICE_NAME \

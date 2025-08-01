@@ -1,49 +1,37 @@
-# Stage 1: Installer - Install dependencies with Chainguard's dev image
-FROM cgr.dev/chainguard/node:20-dev AS installer
+# -------- Stage 1: Install dependencies (buildtime, outside distroless) --------
+FROM node:20 AS installer
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Stage 2: Builder - Build the Next.js app using Chainguard dev image
-FROM cgr.dev/chainguard/node:20-dev AS builder
+# -------- Stage 2: Build your app --------
+FROM node:20 AS builder
 WORKDIR /app
+
 COPY --from=installer /app/node_modules ./node_modules
 COPY . .
 
-# --- Build Arguments for Firebase Client Config ---
-ARG NEXT_PUBLIC_FIREBASE_API_KEY
-ARG NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-ARG NEXT_PUBLIC_FIREBASE_PROJECT_ID
-ARG NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-ARG NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
-ARG NEXT_PUBLIC_FIREBASE_APP_ID
-
-# --- Set ENV variables during build ---
-ENV NEXT_PUBLIC_FIREBASE_API_KEY=$NEXT_PUBLIC_FIREBASE_API_KEY
-ENV NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-ENV NEXT_PUBLIC_FIREBASE_PROJECT_ID=$NEXT_PUBLIC_FIREBASE_PROJECT_ID
-ENV NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-ENV NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
-ENV NEXT_PUBLIC_FIREBASE_APP_ID=$NEXT_PUBLIC_FIREBASE_APP_ID
-
+# --- If using Prisma, add config/ENV as before, then: ---
 RUN npx prisma generate
 RUN npm run build
 
-# Stage 3: Runner - Use minimal production image
-FROM cgr.dev/chainguard/node:20
+# -------- Stage 3: Distroless Production Runner --------
+FROM gcr.io/distroless/nodejs20-debian12
+
 WORKDIR /app
 
+# No "USER node" — distroless images run as non-root (`65532`) by default
+
+# Required: Copy only the built output (and node_modules if your app needs them at runtime)
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+# If your Next.js server requires node_modules at runtime, include them:
+COPY --from=installer /app/node_modules ./node_modules
+
+# Pass any environment variables in at container runtime (or via .env in your build artifacts)
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-USER root
-RUN mkdir -p /app && chown -R node:node /app
-USER node
-
-# Copy the standalone output
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=node:node /app/.next/standalone ./
-COPY --from=builder --chown=node:node /app/.next/static ./.next/static
-
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["server.js"]

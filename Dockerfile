@@ -27,7 +27,7 @@ WORKDIR /app
 # Explicitly copy and set secure permissions
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN chmod 750 . && chmod -R 640 *
+
 
 # Secure build arguments with strict defaults
 ARG NEXT_PUBLIC_FIREBASE_API_KEY=""

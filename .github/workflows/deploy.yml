@@ -45,24 +45,6 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Verify next.config.js
-        run: |
-          echo "🔍 Checking next.config.js configuration..."
-          if [ -f "next.config.js" ]; then
-            echo "--- next.config.js contents ---"
-            cat next.config.js
-            if grep -q "output.*standalone" next.config.js; then
-              echo "✅ Standalone output configuration found"
-            else
-              echo "❌ WARNING: 'output: standalone' not found in next.config.js"
-              echo "This is required for Docker deployment"
-              exit 1
-            fi
-          else
-            echo "❌ next.config.js not found"
-            exit 1
-          fi
-
       - name: Build Next.js Application
         env:
           NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
@@ -73,280 +55,31 @@ jobs:
           NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          echo "🔨 Building Next.js application..."
           npm run build
-          echo "✅ Build completed"
 
-      - name: Debug standalone build artifacts
-        run: |
-          echo "🔍 Checking build artifacts after npm run build..."
-          ls -la .next/
-          echo ""
-          echo "--- Standalone Directory Contents ---"
-          if [ -d ".next/standalone" ]; then
-            ls -la .next/standalone/
-            echo ""
-            echo "--- Checking server.js ---"
-            if [ -f ".next/standalone/server.js" ]; then
-              echo "✅ server.js exists"
-              echo "First 10 lines of server.js:"
-              head -10 .next/standalone/server.js
-            else
-              echo "❌ server.js missing"
-              exit 1
-            fi
-          else
-            echo "❌ .next/standalone directory missing"
-            echo "Current .next contents:"
-            find .next -type f | head -20
-            exit 1
-          fi
-
-      - name: Debug DATABASE_URL Format
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          echo "Analyzing DATABASE_URL format..."
-
-          # Check if DATABASE_URL is set
-          if [[ -z "$DATABASE_URL" ]]; then
-            echo "❌ ERROR: DATABASE_URL is not set"
-            exit 1
-          fi
-
-          # Show the structure (hiding sensitive parts)
-          echo "URL structure analysis:"
-          echo "Length: ${#DATABASE_URL} characters"
-          echo "Starts with: ${DATABASE_URL:0:15}..."
-
-          # Check protocol
-          if [[ "$DATABASE_URL" =~ ^postgresql:// ]]; then
-            echo "✅ Protocol: postgresql://"
-          elif [[ "$DATABASE_URL" =~ ^postgres:// ]]; then
-            echo "✅ Protocol: postgres:// (alternative format)"
-          else
-            echo "❌ Invalid protocol. Must start with 'postgresql://' or 'postgres://'"
-            echo "Current start: ${DATABASE_URL:0:20}"
-            exit 1
-          fi
-
-          # Remove protocol for further analysis
-          url_without_protocol="${DATABASE_URL#*://}"
-          echo "Without protocol: ${url_without_protocol:0:10}...${url_without_protocol: -10}"
-
-          # Check for @ symbol (separates auth from host)
-          if [[ "$url_without_protocol" == *"@"* ]]; then
-            echo "✅ Contains @ symbol (auth separator found)"
-            
-            # Split on @ to get auth and host parts
-            auth_part="${url_without_protocol%%@*}"
-            host_part="${url_without_protocol#*@}"
-            
-            echo "Auth part length: ${#auth_part}"
-            echo "Host part: ${host_part:0:20}..."
-            
-            # Check auth part for username:password format
-            if [[ "$auth_part" == *":"* ]]; then
-              username="${auth_part%%:*}"
-              password="${auth_part#*:}"
-              echo "✅ Username found: $username"
-              echo "✅ Password length: ${#password} characters"
-              
-              # Check for unencoded special characters in password
-              if [[ "$password" == *"@"* ]]; then
-                echo "⚠️  WARNING: @ found in password - should be %40"
-              fi
-              if [[ "$password" == *"$"* ]]; then
-                echo "⚠️  WARNING: $ found in password - should be %24"
-              fi
-              if [[ "$password" == *"#"* ]]; then
-                echo "⚠️  WARNING: # found in password - should be %23"
-              fi
-              if [[ "$password" == *"?"* ]]; then
-                echo "⚠️  WARNING: ? found in password - should be %3F"
-              fi
-              if [[ "$password" == *"/"* ]]; then
-                echo "⚠️  WARNING: / found in password - should be %2F"
-              fi
-            else
-              echo "❌ Auth part missing colon separator for username:password"
-              exit 1
-            fi
-            
-            # Analyze host part (should be host:port/database)
-            if [[ "$host_part" == *":"* ]]; then
-              host="${host_part%%:*}"
-              port_and_db="${host_part#*:}"
-              echo "✅ Host: $host"
-              
-              if [[ "$port_and_db" == *"/"* ]]; then
-                port="${port_and_db%%/*}"
-                database_part="${port_and_db#*/}"
-                echo "✅ Port: $port"
-                echo "✅ Database part: ${database_part:0:20}..."
-                
-                # Validate port
-                if [[ ! "$port" =~ ^[0-9]+$ ]]; then
-                  echo "❌ ERROR: Port '$port' is not a valid number"
-                  exit 1
-                elif [[ "$port" -lt 1 ]] || [[ "$port" -gt 65535 ]]; then
-                  echo "❌ ERROR: Port '$port' is out of valid range (1-65535)"
-                  exit 1
-                fi
-                
-                echo "✅ DATABASE_URL appears to have correct structure"
-              else
-                echo "❌ ERROR: Missing database part (no / found after port)"
-                exit 1
-              fi
-            else
-              echo "❌ ERROR: Missing port (no : found in host part)"
-              exit 1
-            fi
-          else
-            echo "❌ ERROR: Missing @ symbol (no authentication part found)"
-            echo "Expected format: postgresql://username:password@host:port/database"
+          if [ ! -f ".next/standalone/server.js" ]; then
+            echo "❌ Standalone build failed"
             exit 1
           fi
 
       - name: Setup Cloud SQL Proxy
         run: |
-          echo "Setting up Cloud SQL Proxy..."
-
-          # Download and setup Cloud SQL Proxy
           curl -o cloud_sql_proxy https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64
           chmod +x cloud_sql_proxy
 
-          # Build the connection name
           CONNECTION_NAME="${{ secrets.GCP_PROJECT_ID }}:$REGION:${{ secrets.CLOUD_SQL_INSTANCE_NAME }}"
-          echo "Connection name: $CONNECTION_NAME"
 
-          # Start proxy in background with verbose output and redirect logs
-          echo "Starting Cloud SQL Proxy..."
           nohup ./cloud_sql_proxy -instances=$CONNECTION_NAME=tcp:5432 -verbose > cloud_sql_proxy.log 2>&1 &
           PROXY_PID=$!
-          echo "Cloud SQL Proxy started with PID: $PROXY_PID"
-          echo $PROXY_PID > proxy.pid
 
-          # Give it a moment to start and capture any immediate errors
           sleep 5
 
-          # Check if the process is still running
           if ! kill -0 $PROXY_PID 2>/dev/null; then
-            echo "❌ Cloud SQL Proxy process died immediately"
-            echo "This usually means authentication or connection name issues"
-            echo "Expected connection name format: PROJECT_ID:REGION:INSTANCE_NAME"
-            echo "Your connection name: $CONNECTION_NAME"
+            echo "❌ Cloud SQL Proxy failed to start"
             exit 1
           fi
 
-          # Wait for the proxy to be ready
-          echo "Waiting for Cloud SQL Proxy to be ready on port 5432..."
-          for i in {1..60}; do
-            if nc -z 127.0.0.1 5432; then
-              echo "✅ Cloud SQL Proxy is ready on port 5432 (attempt $i)"
-              break
-            fi
-            
-            # Check if proxy process is still running
-            if ! kill -0 $PROXY_PID 2>/dev/null; then
-              echo "❌ Cloud SQL Proxy process died during startup"
-              exit 1
-            fi
-            
-            echo "Attempt $i/60: Waiting for proxy... (PID $PROXY_PID still running)"
-            sleep 2
-          done
-
-          # Final check
-          if nc -z 127.0.0.1 5432; then
-            echo "✅ Cloud SQL Proxy is successfully running on port 5432"
-          else
-            echo "❌ Cloud SQL Proxy failed to become ready on port 5432"
-            echo "Process status:"
-            ps aux | grep cloud_sql_proxy | grep -v grep || echo "No cloud_sql_proxy process found"
-            echo "Network status:"
-            netstat -tlnp | grep 5432 || echo "Nothing listening on port 5432"
-            exit 1
-          fi
-
-      - name: Test Connection Before Migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          echo "Testing database connection before running migrations..."
-
-          # Give proxy extra time to stabilize
-          echo "Waiting 5 seconds for proxy to fully stabilize..."
-          sleep 5
-
-          # Check if anything is listening on port 5432
-          echo "Checking what's listening on port 5432:"
-          netstat -tlnp | grep 5432 || echo "Nothing found listening on port 5432"
-
-          # Check if cloud_sql_proxy is running
-          echo "Checking for cloud_sql_proxy processes:"
-          ps aux | grep cloud_sql_proxy | grep -v grep || echo "No cloud_sql_proxy process found"
-
-          # Test the connection with a simple tool
-          echo "Testing raw TCP connection to 127.0.0.1:5432..."
-          if timeout 10s bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/5432'; then
-            echo "✅ Port 5432 is reachable via TCP"
-          else
-            echo "❌ Cannot connect to port 5432 via TCP"
-            exit 1
-          fi
-
-          # Test PostgreSQL connection specifically
-          echo "Testing PostgreSQL connection..."
-          if command -v psql > /dev/null; then
-            echo "Using psql to test connection..."
-            if timeout 10s psql "$DATABASE_URL" -c "SELECT version();" > /dev/null 2>&1; then
-              echo "✅ PostgreSQL connection successful"
-            else
-              echo "❌ PostgreSQL connection failed"
-              echo "Trying to get more details..."
-              echo "Full psql error output:"
-              timeout 10s psql "$DATABASE_URL" -c "SELECT version();" 2>&1 || true
-              
-              echo ""
-              echo "Testing with different connection parameters..."
-              
-              # Extract components from DATABASE_URL for testing
-              if [[ "$DATABASE_URL" =~ ^postgresql://([^:]+):([^@]+)@([^:/]+):([0-9]+)/(.+)$ ]]; then
-                db_user="${BASH_REMATCH[1]}"
-                db_pass="${BASH_REMATCH[2]}"
-                db_host="${BASH_REMATCH[3]}"
-                db_port="${BASH_REMATCH[4]}"
-                db_name="${BASH_REMATCH[5]}"
-                
-                echo "Extracted connection details:"
-                echo "  User: $db_user"
-                echo "  Host: $db_host"
-                echo "  Port: $db_port"
-                echo "  Database: $db_name"
-                
-                # Test with explicit parameters
-                echo ""
-                echo "Testing with explicit psql parameters..."
-                PGPASSWORD="$db_pass" timeout 10s psql -h "$db_host" -p "$db_port" -U "$db_user" -d "$db_name" -c "SELECT version();" 2>&1 || true
-                
-                echo ""
-                echo "Testing connection to postgres database (default)..."
-                PGPASSWORD="$db_pass" timeout 10s psql -h "$db_host" -p "$db_port" -U "$db_user" -d "postgres" -c "SELECT version();" 2>&1 || true
-              fi
-            fi
-          else
-            echo "psql not available, skipping PostgreSQL-specific test"
-          fi
-
-      - name: Skip Migrations (Run Manually)
-        run: |
-          echo "⚠️  Skipping migrations in CI/CD for now"
-          echo "You can run migrations manually after deployment:"
-          echo "1. Connect to your Cloud SQL instance"
-          echo "2. Run: npx prisma migrate deploy"
-          echo "Or run them locally with Cloud SQL Proxy"
+          nc -z 127.0.0.1 5432 || exit 1
 
       - name: Configure Docker for Artifact Registry
         run: |
@@ -364,7 +97,6 @@ jobs:
         run: |
           IMAGE_URI=$AR_LOCATION-docker.pkg.dev/$PROJECT_ID/$AR_REPOSITORY/$SERVICE_NAME:$IMAGE_TAG
 
-          echo "Building Docker image: $IMAGE_URI"
           docker build \
             --build-arg NEXT_PUBLIC_FIREBASE_API_KEY="$NEXT_PUBLIC_FIREBASE_API_KEY" \
             --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN" \
@@ -374,30 +106,27 @@ jobs:
             --build-arg NEXT_PUBLIC_FIREBASE_APP_ID="$NEXT_PUBLIC_FIREBASE_APP_ID" \
             -t $IMAGE_URI .
 
-          echo "Pushing image to Artifact Registry..."
           docker push $IMAGE_URI
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
-          echo "✅ Image built and pushed successfully"
 
       - name: Deploy to Cloud Run
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
         run: |
-          echo "Deploying to Cloud Run..."
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_URI \
             --region $REGION \
             --platform managed \
             --allow-unauthenticated \
-            --set-env-vars="DATABASE_URL=$DATABASE_URL" \
+            --set-env-vars \
+              DATABASE_URL=$DATABASE_URL,
+              FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID \
             --memory=1Gi \
             --cpu=1 \
             --max-instances=10 \
             --port=3000 \
             --quiet
 
-          echo "✅ Deployment completed successfully"
-
-          # Get the service URL
           SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format="value(status.url)")
           echo "🚀 Service deployed at: $SERVICE_URL"

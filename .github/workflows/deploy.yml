@@ -58,6 +58,18 @@ jobs:
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Setup Cloud SQL Proxy
+        run: |
+
+          wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy
+          chmod +x cloud_sql_proxy
+
+
+          ./cloud_sql_proxy -instances=my-project-1502729769937:us-central1:psqla=tcp:5432 &
+
+
+          sleep 10
+
       - name: Configure Docker for Artifact Registry
         run: |
           gcloud auth configure-docker $AR_LOCATION-docker.pkg.dev

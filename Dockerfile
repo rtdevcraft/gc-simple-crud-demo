@@ -81,7 +81,7 @@ USER nodejs
 # Hardened runtime configuration
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_OPTIONS="--max_old_space_size=4096 --security-revert=CVE-2023-30586"
+
 
 # Expose application port
 EXPOSE 3000
@@ -90,5 +90,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -q -O /dev/null http://localhost:3000/health || exit 1
 
-# Startup command with security flags (CORRECTED SYNTAX)
+# Startup command with security flags
 CMD ["node", "server.js"]

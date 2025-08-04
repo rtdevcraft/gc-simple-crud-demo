@@ -283,13 +283,6 @@ jobs:
             echo "psql not available, skipping PostgreSQL-specific test"
           fi
 
-      # Temporarily comment out migrations for debugging
-      # - name: Run Prisma Migrations
-      #   env:
-      #     DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      #   run: |
-      #     # ... migration code ...
-
       - name: Skip Migrations (Run Manually)
         run: |
           echo "⚠️  Skipping migrations in CI/CD for now"
@@ -328,6 +321,36 @@ jobs:
           docker push $IMAGE_URI
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
           echo "✅ Image built and pushed successfully"
+
+      - name: Verify Server Configuration
+        run: |
+          echo "🔍 Checking server startup configuration..."
+
+          # Display server.js contents
+          echo "--- server.js contents ---"
+          cat server.js || echo "Error: server.js not found"
+
+          echo ""
+          echo "--- Next.js build configuration ---"
+          ls -la .next/standalone || echo "Standalone build not found"
+
+          echo ""
+          echo "--- Environment Variable Check ---"
+          # Show specific environment variables
+          env | grep -E 'PORT|NODE_ENV|NEXT_PUBLIC_|DATABASE_URL'
+
+          echo ""
+          echo "--- Node.js Version ---"
+          node --version
+
+          echo ""
+          echo "--- NPM Version ---"
+          npm --version
+
+          echo ""
+          echo "--- Check server startup script ---"
+          # Look for possible startup scripts in package.json
+          grep -A 5 "scripts" package.json || echo "No scripts found in package.json"
 
       - name: Deploy to Cloud Run
         env:

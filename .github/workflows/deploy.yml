@@ -42,6 +42,66 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Verify next.config.js
+        run: |
+          echo "🔍 Checking next.config.js configuration..."
+          if [ -f "next.config.js" ]; then
+            echo "--- next.config.js contents ---"
+            cat next.config.js
+            if grep -q "output.*standalone" next.config.js; then
+              echo "✅ Standalone output configuration found"
+            else
+              echo "❌ WARNING: 'output: standalone' not found in next.config.js"
+              echo "This is required for Docker deployment"
+              exit 1
+            fi
+          else
+            echo "❌ next.config.js not found"
+            exit 1
+          fi
+
+      - name: Build Next.js Application
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "🔨 Building Next.js application..."
+          npm run build
+          echo "✅ Build completed"
+
+      - name: Debug standalone build artifacts
+        run: |
+          echo "🔍 Checking build artifacts after npm run build..."
+          ls -la .next/
+          echo ""
+          echo "--- Standalone Directory Contents ---"
+          if [ -d ".next/standalone" ]; then
+            ls -la .next/standalone/
+            echo ""
+            echo "--- Checking server.js ---"
+            if [ -f ".next/standalone/server.js" ]; then
+              echo "✅ server.js exists"
+              echo "First 10 lines of server.js:"
+              head -10 .next/standalone/server.js
+            else
+              echo "❌ server.js missing"
+              exit 1
+            fi
+          else
+            echo "❌ .next/standalone directory missing"
+            echo "Current .next contents:"
+            find .next -type f | head -20
+            exit 1
+          fi
+
       - name: Debug DATABASE_URL Format
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -210,9 +270,6 @@ jobs:
             exit 1
           fi
 
-      - name: Generate Prisma Client
-        run: npx prisma generate
-
       - name: Test Connection Before Migrations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -321,30 +378,6 @@ jobs:
           docker push $IMAGE_URI
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
           echo "✅ Image built and pushed successfully"
-
-      - name: Debug standalone build
-        run: |
-          echo "🔍 Checking build artifacts after npm run build..."
-          ls -la .next/
-          echo ""
-          echo "--- Standalone Directory Contents ---"
-          if [ -d ".next/standalone" ]; then
-            ls -la .next/standalone/
-            echo ""
-            echo "--- Checking server.js ---"
-            if [ -f ".next/standalone/server.js" ]; then
-              echo "✅ server.js exists"
-              head -10 .next/standalone/server.js
-            else
-              echo "❌ server.js missing"
-              exit 1
-            fi
-          else
-            echo "❌ .next/standalone directory missing"
-            echo "Current .next contents:"
-            find .next -type f | head -20
-            exit 1
-          fi
 
       - name: Deploy to Cloud Run
         env:

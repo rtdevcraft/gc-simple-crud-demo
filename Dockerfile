@@ -1,5 +1,5 @@
 # -------- Stage 1: Minimal Secure Dependency Installation --------
-FROM node:20-alpine3.19 AS deps
+FROM node:20-alpine AS deps
 WORKDIR /app
 
 # Comprehensive security update and minimal dependency installation
@@ -21,7 +21,7 @@ RUN npm ci --only=production \
     && npm cache clean --force
 
 # -------- Stage 2: Secure Build Stage --------
-FROM node:20-alpine3.19 AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Explicitly copy and set secure permissions
@@ -55,7 +55,7 @@ RUN npx prisma generate \
     && find . -type f -name "*.d.ts" -delete
 
 # -------- Stage 3: Minimal Secure Runner --------
-FROM node:20-alpine3.19-slim
+FROM node:20-alpine
 WORKDIR /app
 
 # Create minimal non-root user with restricted access

@@ -24,10 +24,11 @@ RUN npm ci --only=production \
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Explicitly copy and set secure permissions
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+# Install all dependencies for build
+COPY package.json package-lock.json ./
+RUN npm ci
 
+COPY . .
 
 # Secure build arguments with strict defaults
 ARG NEXT_PUBLIC_FIREBASE_API_KEY=""
@@ -50,30 +51,29 @@ ENV DATABASE_URL=${DATABASE_URL:-}
 # Secure build process with error checking
 RUN npx prisma generate \
     && npm run build \
-    && npm prune --production \
     && find . -type f -name "*.map" -delete \
     && find . -type f -name "*.d.ts" -delete
 
 # -------- Stage 3: Minimal Secure Runner --------
-FROM node:20-alpine
+FROM node:20-alpine AS runner
 WORKDIR /app
 
 # Create minimal non-root user with restricted access
 RUN addgroup -g 1001 -S nodejs \
-    && adduser -S -G nodejs -u 1001 nodejs \
-    && mkdir -p /home/nodejs/.npm \
-    && chown -R nodejs:nodejs /home/nodejs \
-    && chown -R nodejs:nodejs /app
+    && adduser -S -G nodejs -u 1001 nodejs
 
-# Copy only essential artifacts with minimal permissions
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=deps /app/node_modules ./node_modules
+# Copy only production dependencies
+COPY --from=deps --chown=nodejs:nodejs /app/node_modules ./node_modules
 
-# Explicitly set secure file permissions
-RUN chmod -R 550 /app \
-    && chmod -R 440 /app/*
+# Copy built application with proper ownership
+COPY --from=builder --chown=nodejs:nodejs /app/public ./public
+COPY --from=builder --chown=nodejs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nodejs:nodejs /app/.next/static ./.next/static
+
+# Set proper permissions - directories need execute permission
+RUN find /app -type d -exec chmod 755 {} \; \
+    && find /app -type f -exec chmod 644 {} \; \
+    && chmod 755 /app/server.js
 
 # Switch to non-root user
 USER nodejs
@@ -81,14 +81,15 @@ USER nodejs
 # Hardened runtime configuration
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
 
 # Expose application port
 EXPOSE 3000
 
 # Simplified health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q -O /dev/null http://localhost:3000/health || exit 1
+    CMD wget -q -O /dev/null http://localhost:3000/api/health || exit 1
 
-# Startup command with security flags
+# Startup command
 CMD ["node", "server.js"]

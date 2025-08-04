@@ -322,32 +322,29 @@ jobs:
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
           echo "✅ Image built and pushed successfully"
 
-      - name: Verify Server Configuration
+      - name: Debug standalone build
         run: |
-          echo "🔍 Checking server startup configuration..."
-
+          echo "🔍 Checking build artifacts after npm run build..."
+          ls -la .next/
+          echo ""
           echo "--- Standalone Directory Contents ---"
-          ls -la .next/standalone
-
-          echo ""
-          echo "--- Checking server.js in standalone ---"
-          cat .next/standalone/server.js || echo "Error: server.js not found in standalone"
-
-          echo ""
-          echo "--- Next.js Build Artifacts ---"
-          ls -la .next
-
-          echo ""
-          echo "--- Environment Variable Check ---"
-          env | grep -E 'PORT|NODE_ENV|NEXT_PUBLIC_|DATABASE_URL'
-
-          echo ""
-          echo "--- Node.js Version ---"
-          node --version
-
-          echo ""
-          echo "--- NPM Version ---"
-          npm --version
+          if [ -d ".next/standalone" ]; then
+            ls -la .next/standalone/
+            echo ""
+            echo "--- Checking server.js ---"
+            if [ -f ".next/standalone/server.js" ]; then
+              echo "✅ server.js exists"
+              head -10 .next/standalone/server.js
+            else
+              echo "❌ server.js missing"
+              exit 1
+            fi
+          else
+            echo "❌ .next/standalone directory missing"
+            echo "Current .next contents:"
+            find .next -type f | head -20
+            exit 1
+          fi
 
       - name: Deploy to Cloud Run
         env:

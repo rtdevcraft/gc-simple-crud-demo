@@ -42,21 +42,67 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Validate DATABASE_URL
+      - name: Debug and Validate DATABASE_URL
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          echo "Checking DATABASE_URL format..."
+
+          # Check if DATABASE_URL is set
           if [[ -z "$DATABASE_URL" ]]; then
-            echo "ERROR: DATABASE_URL is not set"
+            echo "❌ ERROR: DATABASE_URL is not set"
             exit 1
           fi
 
+          # Basic format validation
           if [[ ! "$DATABASE_URL" =~ ^postgresql:// ]]; then
-            echo "ERROR: DATABASE_URL must be a PostgreSQL connection string"
+            echo "❌ ERROR: DATABASE_URL must start with 'postgresql://'"
+            echo "Current format: ${DATABASE_URL:0:20}..."
             exit 1
           fi
 
-          echo "✅ DATABASE_URL validation successful"
+          # Check for common issues and extract components
+          if [[ "$DATABASE_URL" =~ ^postgresql://([^:]+):([^@]+)@([^:/]+):([0-9]+)/([^?]+)(\?.*)?$ ]]; then
+            username="${BASH_REMATCH[1]}"
+            host="${BASH_REMATCH[3]}"
+            port="${BASH_REMATCH[4]}"
+            database="${BASH_REMATCH[5]}"
+            params="${BASH_REMATCH[6]}"
+            
+            echo "✅ URL format appears valid:"
+            echo "   Username: $username"
+            echo "   Host: $host"
+            echo "   Port: $port"
+            echo "   Database: $database"
+            echo "   Parameters: $params"
+            
+            # Validate port number
+            if [[ ! "$port" =~ ^[0-9]+$ ]] || [[ "$port" -lt 1 ]] || [[ "$port" -gt 65535 ]]; then
+              echo "❌ ERROR: Invalid port number: $port"
+              exit 1
+            fi
+            
+            echo "✅ DATABASE_URL validation successful"
+            
+          else
+            echo "❌ ERROR: DATABASE_URL format is invalid"
+            echo "Expected format: postgresql://username:password@host:port/database"
+            
+            # Check for common encoding issues
+            if [[ "$DATABASE_URL" == *"@"*":"*"@"* ]]; then
+              echo "⚠️  Possible issue: @ symbol in password needs to be encoded as %40"
+            fi
+            
+            if [[ "$DATABASE_URL" == *"$"* ]]; then
+              echo "⚠️  Possible issue: $ symbol in password needs to be encoded as %24"
+            fi
+            
+            if [[ "$DATABASE_URL" == *"#"* ]]; then
+              echo "⚠️  Possible issue: # symbol in password needs to be encoded as %23"
+            fi
+            
+            exit 1
+          fi
 
       - name: Setup Cloud SQL Proxy
         run: |
@@ -80,7 +126,7 @@ jobs:
 
           # Final check
           if ! nc -z 127.0.0.1 5432; then
-            echo " Cloud SQL Proxy failed to start"
+            echo "❌ Cloud SQL Proxy failed to start"
             exit 1
           fi
 

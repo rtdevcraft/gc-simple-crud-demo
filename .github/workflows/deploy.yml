@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -34,20 +34,55 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Validate DATABASE_URL
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [[ -z "$DATABASE_URL" ]]; then
+            echo "ERROR: DATABASE_URL is not set"
+            exit 1
+          fi
+
+          if [[ ! "$DATABASE_URL" =~ ^postgresql:// ]]; then
+            echo "ERROR: DATABASE_URL must be a PostgreSQL connection string"
+            exit 1
+          fi
+
+          echo "✅ DATABASE_URL validation successful"
 
       - name: Setup Cloud SQL Proxy
         run: |
-          wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy
+          # Download and setup Cloud SQL Proxy
+          curl -o cloud_sql_proxy https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64
           chmod +x cloud_sql_proxy
-          ./cloud_sql_proxy -instances=my-project-1502729769937:us-central1:psqla=tcp:5432 &
-          sleep 15
-          nc -zv 127.0.0.1 5432
+
+          # Start proxy in background - Update with your actual connection name
+          ./cloud_sql_proxy -instances=${{ secrets.GCP_PROJECT_ID }}:$REGION:psqla=tcp:5432 &
+
+          # Wait for proxy to be ready
+          echo "Waiting for Cloud SQL Proxy to be ready..."
+          for i in {1..30}; do
+            if nc -z 127.0.0.1 5432; then
+              echo "✅ Cloud SQL Proxy is ready"
+              break
+            fi
+            echo "Attempt $i/30: Waiting for proxy..."
+            sleep 2
+          done
+
+          # Final check
+          if ! nc -z 127.0.0.1 5432; then
+            echo " Cloud SQL Proxy failed to start"
+            exit 1
+          fi
 
       - name: Generate Prisma Client
         run: npx prisma generate
@@ -56,31 +91,60 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          DATABASE_URL="$DATABASE_URL" npx prisma migrate deploy
+          echo "Running Prisma migrations..."
+          npx prisma migrate deploy
+          echo "✅ Migrations completed successfully"
 
       - name: Configure Docker for Artifact Registry
         run: |
           gcloud auth configure-docker $AR_LOCATION-docker.pkg.dev
 
       - name: Build and Push to Artifact Registry
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
         run: |
-          IMAGE_URI=$AR_LOCATION-docker.pkg.dev/$PROJECT_ID/$AR_REPOSITORY/$SERVICE_NAME:${{ github.sha }}
+          IMAGE_URI=$AR_LOCATION-docker.pkg.dev/$PROJECT_ID/$AR_REPOSITORY/$SERVICE_NAME:$IMAGE_TAG
+
+          echo "Building Docker image: $IMAGE_URI"
           docker build \
-            --build-arg NEXT_PUBLIC_FIREBASE_API_KEY="${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}" \
-            --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}" \
-            --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID="${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}" \
-            --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}" \
-            --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}" \
-            --build-arg NEXT_PUBLIC_FIREBASE_APP_ID="${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}" \
+            --build-arg NEXT_PUBLIC_FIREBASE_API_KEY="$NEXT_PUBLIC_FIREBASE_API_KEY" \
+            --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN" \
+            --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID="$NEXT_PUBLIC_FIREBASE_PROJECT_ID" \
+            --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET" \
+            --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID" \
+            --build-arg NEXT_PUBLIC_FIREBASE_APP_ID="$NEXT_PUBLIC_FIREBASE_APP_ID" \
             -t $IMAGE_URI .
+
+          echo "Pushing image to Artifact Registry..."
           docker push $IMAGE_URI
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+          echo "✅ Image built and pushed successfully"
 
       - name: Deploy to Cloud Run
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          echo "Deploying to Cloud Run..."
           gcloud run deploy $SERVICE_NAME \
-            --image ${{ env.IMAGE_URI }} \
+            --image $IMAGE_URI \
             --region $REGION \
             --platform managed \
             --allow-unauthenticated \
+            --set-env-vars="DATABASE_URL=$DATABASE_URL" \
+            --memory=1Gi \
+            --cpu=1 \
+            --max-instances=10 \
+            --port=3000 \
             --quiet
+
+          echo "✅ Deployment completed successfully"
+
+          # Get the service URL
+          SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format="value(status.url)")
+          echo "🚀 Service deployed at: $SERVICE_URL"

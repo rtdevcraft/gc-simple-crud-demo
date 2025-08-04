@@ -161,11 +161,12 @@ jobs:
           CONNECTION_NAME="${{ secrets.GCP_PROJECT_ID }}:$REGION:${{ secrets.CLOUD_SQL_INSTANCE_NAME }}"
           echo "Connection name: $CONNECTION_NAME"
 
-          # Start proxy in background with verbose output
+          # Start proxy in background with verbose output and redirect logs
           echo "Starting Cloud SQL Proxy..."
-          ./cloud_sql_proxy -instances=$CONNECTION_NAME=tcp:5432 -verbose &
+          nohup ./cloud_sql_proxy -instances=$CONNECTION_NAME=tcp:5432 -verbose > cloud_sql_proxy.log 2>&1 &
           PROXY_PID=$!
           echo "Cloud SQL Proxy started with PID: $PROXY_PID"
+          echo $PROXY_PID > proxy.pid
 
           # Give it a moment to start and capture any immediate errors
           sleep 5
@@ -248,40 +249,54 @@ jobs:
             else
               echo "❌ PostgreSQL connection failed"
               echo "Trying to get more details..."
-              timeout 10s psql "$DATABASE_URL" -c "SELECT version();" || true
+              echo "Full psql error output:"
+              timeout 10s psql "$DATABASE_URL" -c "SELECT version();" 2>&1 || true
+              
+              echo ""
+              echo "Testing with different connection parameters..."
+              
+              # Extract components from DATABASE_URL for testing
+              if [[ "$DATABASE_URL" =~ ^postgresql://([^:]+):([^@]+)@([^:/]+):([0-9]+)/(.+)$ ]]; then
+                db_user="${BASH_REMATCH[1]}"
+                db_pass="${BASH_REMATCH[2]}"
+                db_host="${BASH_REMATCH[3]}"
+                db_port="${BASH_REMATCH[4]}"
+                db_name="${BASH_REMATCH[5]}"
+                
+                echo "Extracted connection details:"
+                echo "  User: $db_user"
+                echo "  Host: $db_host"
+                echo "  Port: $db_port"
+                echo "  Database: $db_name"
+                
+                # Test with explicit parameters
+                echo ""
+                echo "Testing with explicit psql parameters..."
+                PGPASSWORD="$db_pass" timeout 10s psql -h "$db_host" -p "$db_port" -U "$db_user" -d "$db_name" -c "SELECT version();" 2>&1 || true
+                
+                echo ""
+                echo "Testing connection to postgres database (default)..."
+                PGPASSWORD="$db_pass" timeout 10s psql -h "$db_host" -p "$db_port" -U "$db_user" -d "postgres" -c "SELECT version();" 2>&1 || true
+              fi
             fi
           else
             echo "psql not available, skipping PostgreSQL-specific test"
           fi
 
-      - name: Run Prisma Migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      # Temporarily comment out migrations for debugging
+      # - name: Run Prisma Migrations
+      #   env:
+      #     DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      #   run: |
+      #     # ... migration code ...
+
+      - name: Skip Migrations (Run Manually)
         run: |
-          echo "Running Prisma migrations..."
-
-          # Add a small delay to ensure proxy is fully ready
-          sleep 2
-
-          # Try migrations with retry logic
-          for attempt in {1..3}; do
-            echo "Migration attempt $attempt/3..."
-            
-            if npx prisma migrate deploy; then
-              echo "✅ Migrations completed successfully on attempt $attempt"
-              break
-            else
-              echo "❌ Migration attempt $attempt failed"
-              
-              if [ $attempt -eq 3 ]; then
-                echo "All migration attempts failed"
-                exit 1
-              else
-                echo "Waiting 10 seconds before retry..."
-                sleep 10
-              fi
-            fi
-          done
+          echo "⚠️  Skipping migrations in CI/CD for now"
+          echo "You can run migrations manually after deployment:"
+          echo "1. Connect to your Cloud SQL instance"
+          echo "2. Run: npx prisma migrate deploy"
+          echo "Or run them locally with Cloud SQL Proxy"
 
       - name: Configure Docker for Artifact Registry
         run: |

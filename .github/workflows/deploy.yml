@@ -326,17 +326,19 @@ jobs:
         run: |
           echo "🔍 Checking server startup configuration..."
 
-          # Display server.js contents
-          echo "--- server.js contents ---"
-          cat server.js || echo "Error: server.js not found"
+          echo "--- Standalone Directory Contents ---"
+          ls -la .next/standalone
 
           echo ""
-          echo "--- Next.js build configuration ---"
-          ls -la .next/standalone || echo "Standalone build not found"
+          echo "--- Checking server.js in standalone ---"
+          cat .next/standalone/server.js || echo "Error: server.js not found in standalone"
+
+          echo ""
+          echo "--- Next.js Build Artifacts ---"
+          ls -la .next
 
           echo ""
           echo "--- Environment Variable Check ---"
-          # Show specific environment variables
           env | grep -E 'PORT|NODE_ENV|NEXT_PUBLIC_|DATABASE_URL'
 
           echo ""
@@ -346,11 +348,6 @@ jobs:
           echo ""
           echo "--- NPM Version ---"
           npm --version
-
-          echo ""
-          echo "--- Check server startup script ---"
-          # Look for possible startup scripts in package.json
-          grep -A 5 "scripts" package.json || echo "No scripts found in package.json"
 
       - name: Deploy to Cloud Run
         env:

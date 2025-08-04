@@ -32,6 +32,21 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
+      - name: Setup Cloud SQL Proxy
+        run: |
+
+          wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy
+          chmod +x cloud_sql_proxy
+
+
+          ./cloud_sql_proxy -instances=my-project-1502729769937:us-central1:psqla=tcp:5432 &
+
+
+          sleep 15
+
+
+          nc -zv 127.0.0.1 5432
+
       - name: Generate Prisma Client
         run: npx prisma generate
 
@@ -57,21 +72,6 @@ jobs:
 
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
-
-      - name: Setup Cloud SQL Proxy
-        run: |
-
-          wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy
-          chmod +x cloud_sql_proxy
-
-
-          ./cloud_sql_proxy -instances=my-project-1502729769937:us-central1:psqla=tcp:5432 &
-
-
-          sleep 15
-
-
-          nc -zv 127.0.0.1 5432
 
       - name: Configure Docker for Artifact Registry
         run: |

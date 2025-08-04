@@ -157,17 +157,29 @@ jobs:
           curl -o cloud_sql_proxy https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64
           chmod +x cloud_sql_proxy
 
-          # Get the connection name - you need to replace this with your actual values
+          # Build the connection name
           CONNECTION_NAME="${{ secrets.GCP_PROJECT_ID }}:$REGION:${{ secrets.CLOUD_SQL_INSTANCE_NAME }}"
           echo "Connection name: $CONNECTION_NAME"
 
-          # Start proxy in background
+          # Start proxy in background with verbose output
           echo "Starting Cloud SQL Proxy..."
-          ./cloud_sql_proxy -instances=$CONNECTION_NAME=tcp:5432 &
+          ./cloud_sql_proxy -instances=$CONNECTION_NAME=tcp:5432 -verbose &
           PROXY_PID=$!
           echo "Cloud SQL Proxy started with PID: $PROXY_PID"
 
-          # Wait longer and check more thoroughly
+          # Give it a moment to start and capture any immediate errors
+          sleep 5
+
+          # Check if the process is still running
+          if ! kill -0 $PROXY_PID 2>/dev/null; then
+            echo "❌ Cloud SQL Proxy process died immediately"
+            echo "This usually means authentication or connection name issues"
+            echo "Expected connection name format: PROJECT_ID:REGION:INSTANCE_NAME"
+            echo "Your connection name: $CONNECTION_NAME"
+            exit 1
+          fi
+
+          # Wait for the proxy to be ready
           echo "Waiting for Cloud SQL Proxy to be ready on port 5432..."
           for i in {1..60}; do
             if nc -z 127.0.0.1 5432; then
@@ -177,42 +189,99 @@ jobs:
             
             # Check if proxy process is still running
             if ! kill -0 $PROXY_PID 2>/dev/null; then
-              echo "❌ Cloud SQL Proxy process died"
-              echo "Checking for error logs..."
-              sleep 1
+              echo "❌ Cloud SQL Proxy process died during startup"
               exit 1
             fi
             
             echo "Attempt $i/60: Waiting for proxy... (PID $PROXY_PID still running)"
-            sleep 3
+            sleep 2
           done
 
-          # Final comprehensive check
+          # Final check
           if nc -z 127.0.0.1 5432; then
             echo "✅ Cloud SQL Proxy is successfully running on port 5432"
-            echo "Testing connection with timeout..."
-            timeout 5s bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/5432' && echo "✅ Port 5432 is accepting connections"
           else
-            echo "❌ Cloud SQL Proxy failed to start on port 5432"
+            echo "❌ Cloud SQL Proxy failed to become ready on port 5432"
             echo "Process status:"
             ps aux | grep cloud_sql_proxy | grep -v grep || echo "No cloud_sql_proxy process found"
             echo "Network status:"
             netstat -tlnp | grep 5432 || echo "Nothing listening on port 5432"
-            echo "Checking for any error output..."
-            sleep 2
             exit 1
           fi
 
       - name: Generate Prisma Client
         run: npx prisma generate
 
+      - name: Test Connection Before Migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "Testing database connection before running migrations..."
+
+          # Give proxy extra time to stabilize
+          echo "Waiting 5 seconds for proxy to fully stabilize..."
+          sleep 5
+
+          # Check if anything is listening on port 5432
+          echo "Checking what's listening on port 5432:"
+          netstat -tlnp | grep 5432 || echo "Nothing found listening on port 5432"
+
+          # Check if cloud_sql_proxy is running
+          echo "Checking for cloud_sql_proxy processes:"
+          ps aux | grep cloud_sql_proxy | grep -v grep || echo "No cloud_sql_proxy process found"
+
+          # Test the connection with a simple tool
+          echo "Testing raw TCP connection to 127.0.0.1:5432..."
+          if timeout 10s bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/5432'; then
+            echo "✅ Port 5432 is reachable via TCP"
+          else
+            echo "❌ Cannot connect to port 5432 via TCP"
+            exit 1
+          fi
+
+          # Test PostgreSQL connection specifically
+          echo "Testing PostgreSQL connection..."
+          if command -v psql > /dev/null; then
+            echo "Using psql to test connection..."
+            if timeout 10s psql "$DATABASE_URL" -c "SELECT version();" > /dev/null 2>&1; then
+              echo "✅ PostgreSQL connection successful"
+            else
+              echo "❌ PostgreSQL connection failed"
+              echo "Trying to get more details..."
+              timeout 10s psql "$DATABASE_URL" -c "SELECT version();" || true
+            fi
+          else
+            echo "psql not available, skipping PostgreSQL-specific test"
+          fi
+
       - name: Run Prisma Migrations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           echo "Running Prisma migrations..."
-          npx prisma migrate deploy
-          echo "✅ Migrations completed successfully"
+
+          # Add a small delay to ensure proxy is fully ready
+          sleep 2
+
+          # Try migrations with retry logic
+          for attempt in {1..3}; do
+            echo "Migration attempt $attempt/3..."
+            
+            if npx prisma migrate deploy; then
+              echo "✅ Migrations completed successfully on attempt $attempt"
+              break
+            else
+              echo "❌ Migration attempt $attempt failed"
+              
+              if [ $attempt -eq 3 ]; then
+                echo "All migration attempts failed"
+                exit 1
+              else
+                echo "Waiting 10 seconds before retry..."
+                sleep 10
+              fi
+            fi
+          done
 
       - name: Configure Docker for Artifact Registry
         run: |

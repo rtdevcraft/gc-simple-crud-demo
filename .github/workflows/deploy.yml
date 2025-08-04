@@ -36,8 +36,18 @@ jobs:
         run: npx prisma generate
 
       - name: Run Prisma Migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          npx prisma migrate deploy
+
+          echo "DATABASE_URL set: ${#DATABASE_URL}"
+          echo "DATABASE_URL first 10 chars: ${DATABASE_URL::10}"
+
+
+          export DATABASE_URL="${{ secrets.DATABASE_URL }}"
+
+
+          DATABASE_URL="$DATABASE_URL" npx prisma migrate deploy
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2

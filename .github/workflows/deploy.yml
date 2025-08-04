@@ -24,6 +24,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Run Prisma Migrations
+        run: |
+          npx prisma migrate deploy
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -33,19 +48,14 @@ jobs:
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
 
-      # 🔐 Configure Docker authentication for us-west4
       - name: Configure Docker for Artifact Registry
         run: |
           gcloud auth configure-docker $AR_LOCATION-docker.pkg.dev
 
-      # 🏗️ Build and push to Artifact Registry
       - name: Build and Push to Artifact Registry
         run: |
           IMAGE_URI=$AR_LOCATION-docker.pkg.dev/$PROJECT_ID/$AR_REPOSITORY/$SERVICE_NAME:${{ github.sha }}
 
-          echo "Building image: $IMAGE_URI"
-
-          # Build the image
           docker build \
             --build-arg NEXT_PUBLIC_FIREBASE_API_KEY="${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}" \
             --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}" \
@@ -55,17 +65,14 @@ jobs:
             --build-arg NEXT_PUBLIC_FIREBASE_APP_ID="${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}" \
             -t $IMAGE_URI .
 
-          # Push to Artifact Registry
           docker push $IMAGE_URI
 
-          # Store image URI for deployment
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
-      # 🚀 Deploy to Cloud Run
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy $SERVICE_NAME \
-            --image $IMAGE_URI \
+            --image ${{ env.IMAGE_URI }} \
             --region $REGION \
             --platform managed \
             --allow-unauthenticated \

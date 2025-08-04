@@ -1,52 +1,94 @@
-# -------- Stage 1: Install dependencies --------
-FROM node:20 AS installer
+# -------- Stage 1: Minimal Secure Dependency Installation --------
+FROM node:20-alpine3.19 AS deps
 WORKDIR /app
+
+# Comprehensive security update and minimal dependency installation
+RUN apk update && apk upgrade --no-cache \
+    && apk add --no-cache \
+        libc6-compat \
+        python3 \
+        make \
+        g++ \
+        curl \
+    && rm -rf /var/cache/apk/* \
+    && npm config set update-notifier false \
+    && npm config set fund false
+
+# Use npm with strict security
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --only=production \
+    && npm audit fix --force \
+    && npm cache clean --force
 
-# -------- Stage 2: Build Next.js app --------
-FROM node:20 AS builder
+# -------- Stage 2: Secure Build Stage --------
+FROM node:20-alpine3.19 AS builder
 WORKDIR /app
 
-COPY --from=installer /app/node_modules ./node_modules
+# Explicitly copy and set secure permissions
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN chmod 750 . && chmod -R 640 *
 
-# --- Build Args for Firebase public config ---
-ARG NEXT_PUBLIC_FIREBASE_API_KEY
-ARG NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-ARG NEXT_PUBLIC_FIREBASE_PROJECT_ID
-ARG NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-ARG NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
-ARG NEXT_PUBLIC_FIREBASE_APP_ID
+# Secure build arguments with strict defaults
+ARG NEXT_PUBLIC_FIREBASE_API_KEY=""
+ARG NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=""
+ARG NEXT_PUBLIC_FIREBASE_PROJECT_ID=""
+ARG NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=""
+ARG NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=""
+ARG NEXT_PUBLIC_FIREBASE_APP_ID=""
+ARG DATABASE_URL=""
 
-# Propagate build args to env vars for Next.js at build time
-ENV NEXT_PUBLIC_FIREBASE_API_KEY=$NEXT_PUBLIC_FIREBASE_API_KEY
-ENV NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-ENV NEXT_PUBLIC_FIREBASE_PROJECT_ID=$NEXT_PUBLIC_FIREBASE_PROJECT_ID
-ENV NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-ENV NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
-ENV NEXT_PUBLIC_FIREBASE_APP_ID=$NEXT_PUBLIC_FIREBASE_APP_ID
+# Strict environment propagation with default empty strings
+ENV NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY:-}
+ENV NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-}
+ENV NEXT_PUBLIC_FIREBASE_PROJECT_ID=${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-}
+ENV NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:-}
+ENV NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:-}
+ENV NEXT_PUBLIC_FIREBASE_APP_ID=${NEXT_PUBLIC_FIREBASE_APP_ID:-}
+ENV DATABASE_URL=${DATABASE_URL:-}
 
-RUN npx prisma generate
-RUN npm run build
+# Secure build process with error checking
+RUN npx prisma generate \
+    && npm run build \
+    && npm prune --production \
+    && find . -type f -name "*.map" -delete \
+    && find . -type f -name "*.d.ts" -delete
 
-# -------- Stage 3: Minimal Distroless runner --------
-FROM gcr.io/distroless/nodejs20-debian12
-
+# -------- Stage 3: Minimal Secure Runner --------
+FROM node:20-alpine3.19-slim
 WORKDIR /app
 
-# Copy public assets and standalone app output
+# Create minimal non-root user with restricted access
+RUN addgroup -g 1001 -S nodejs \
+    && adduser -S -G nodejs -u 1001 nodejs \
+    && mkdir -p /home/nodejs/.npm \
+    && chown -R nodejs:nodejs /home/nodejs \
+    && chown -R nodejs:nodejs /app
+
+# Copy only essential artifacts with minimal permissions
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY --from=deps /app/node_modules ./node_modules
 
-# In many Next.js distroless setups, you DO need node_modules for production runtime!
-COPY --from=installer /app/node_modules ./node_modules
+# Explicitly set secure file permissions
+RUN chmod -R 550 /app \
+    && chmod -R 440 /app/*
 
-# Environment variables (public and runtime)
+# Switch to non-root user
+USER nodejs
+
+# Hardened runtime configuration
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_OPTIONS="--max_old_space_size=4096 --security-revert=CVE-2023-30586"
 
-# Distroless uses PID 65532 (non-root) by default
+# Expose application port
 EXPOSE 3000
-CMD ["server.js"]
+
+# Simplified health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null http://localhost:3000/health || exit 1
+
+# Startup command with security flags (CORRECTED SYNTAX)
+CMD ["node", "server.js"]

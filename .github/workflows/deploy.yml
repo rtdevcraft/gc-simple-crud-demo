@@ -42,11 +42,11 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Debug and Validate DATABASE_URL
+      - name: Debug DATABASE_URL Format
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          echo "Checking DATABASE_URL format..."
+          echo "Analyzing DATABASE_URL format..."
 
           # Check if DATABASE_URL is set
           if [[ -z "$DATABASE_URL" ]]; then
@@ -54,79 +54,152 @@ jobs:
             exit 1
           fi
 
-          # Basic format validation
-          if [[ ! "$DATABASE_URL" =~ ^postgresql:// ]]; then
-            echo "❌ ERROR: DATABASE_URL must start with 'postgresql://'"
-            echo "Current format: ${DATABASE_URL:0:20}..."
+          # Show the structure (hiding sensitive parts)
+          echo "URL structure analysis:"
+          echo "Length: ${#DATABASE_URL} characters"
+          echo "Starts with: ${DATABASE_URL:0:15}..."
+
+          # Check protocol
+          if [[ "$DATABASE_URL" =~ ^postgresql:// ]]; then
+            echo "✅ Protocol: postgresql://"
+          elif [[ "$DATABASE_URL" =~ ^postgres:// ]]; then
+            echo "✅ Protocol: postgres:// (alternative format)"
+          else
+            echo "❌ Invalid protocol. Must start with 'postgresql://' or 'postgres://'"
+            echo "Current start: ${DATABASE_URL:0:20}"
             exit 1
           fi
 
-          # Check for common issues and extract components
-          if [[ "$DATABASE_URL" =~ ^postgresql://([^:]+):([^@]+)@([^:/]+):([0-9]+)/([^?]+)(\?.*)?$ ]]; then
-            username="${BASH_REMATCH[1]}"
-            host="${BASH_REMATCH[3]}"
-            port="${BASH_REMATCH[4]}"
-            database="${BASH_REMATCH[5]}"
-            params="${BASH_REMATCH[6]}"
+          # Remove protocol for further analysis
+          url_without_protocol="${DATABASE_URL#*://}"
+          echo "Without protocol: ${url_without_protocol:0:10}...${url_without_protocol: -10}"
+
+          # Check for @ symbol (separates auth from host)
+          if [[ "$url_without_protocol" == *"@"* ]]; then
+            echo "✅ Contains @ symbol (auth separator found)"
             
-            echo "✅ URL format appears valid:"
-            echo "   Username: $username"
-            echo "   Host: $host"
-            echo "   Port: $port"
-            echo "   Database: $database"
-            echo "   Parameters: $params"
+            # Split on @ to get auth and host parts
+            auth_part="${url_without_protocol%%@*}"
+            host_part="${url_without_protocol#*@}"
             
-            # Validate port number
-            if [[ ! "$port" =~ ^[0-9]+$ ]] || [[ "$port" -lt 1 ]] || [[ "$port" -gt 65535 ]]; then
-              echo "❌ ERROR: Invalid port number: $port"
+            echo "Auth part length: ${#auth_part}"
+            echo "Host part: ${host_part:0:20}..."
+            
+            # Check auth part for username:password format
+            if [[ "$auth_part" == *":"* ]]; then
+              username="${auth_part%%:*}"
+              password="${auth_part#*:}"
+              echo "✅ Username found: $username"
+              echo "✅ Password length: ${#password} characters"
+              
+              # Check for unencoded special characters in password
+              if [[ "$password" == *"@"* ]]; then
+                echo "⚠️  WARNING: @ found in password - should be %40"
+              fi
+              if [[ "$password" == *"$"* ]]; then
+                echo "⚠️  WARNING: $ found in password - should be %24"
+              fi
+              if [[ "$password" == *"#"* ]]; then
+                echo "⚠️  WARNING: # found in password - should be %23"
+              fi
+              if [[ "$password" == *"?"* ]]; then
+                echo "⚠️  WARNING: ? found in password - should be %3F"
+              fi
+              if [[ "$password" == *"/"* ]]; then
+                echo "⚠️  WARNING: / found in password - should be %2F"
+              fi
+            else
+              echo "❌ Auth part missing colon separator for username:password"
               exit 1
             fi
             
-            echo "✅ DATABASE_URL validation successful"
-            
+            # Analyze host part (should be host:port/database)
+            if [[ "$host_part" == *":"* ]]; then
+              host="${host_part%%:*}"
+              port_and_db="${host_part#*:}"
+              echo "✅ Host: $host"
+              
+              if [[ "$port_and_db" == *"/"* ]]; then
+                port="${port_and_db%%/*}"
+                database_part="${port_and_db#*/}"
+                echo "✅ Port: $port"
+                echo "✅ Database part: ${database_part:0:20}..."
+                
+                # Validate port
+                if [[ ! "$port" =~ ^[0-9]+$ ]]; then
+                  echo "❌ ERROR: Port '$port' is not a valid number"
+                  exit 1
+                elif [[ "$port" -lt 1 ]] || [[ "$port" -gt 65535 ]]; then
+                  echo "❌ ERROR: Port '$port' is out of valid range (1-65535)"
+                  exit 1
+                fi
+                
+                echo "✅ DATABASE_URL appears to have correct structure"
+              else
+                echo "❌ ERROR: Missing database part (no / found after port)"
+                exit 1
+              fi
+            else
+              echo "❌ ERROR: Missing port (no : found in host part)"
+              exit 1
+            fi
           else
-            echo "❌ ERROR: DATABASE_URL format is invalid"
+            echo "❌ ERROR: Missing @ symbol (no authentication part found)"
             echo "Expected format: postgresql://username:password@host:port/database"
-            
-            # Check for common encoding issues
-            if [[ "$DATABASE_URL" == *"@"*":"*"@"* ]]; then
-              echo "⚠️  Possible issue: @ symbol in password needs to be encoded as %40"
-            fi
-            
-            if [[ "$DATABASE_URL" == *"$"* ]]; then
-              echo "⚠️  Possible issue: $ symbol in password needs to be encoded as %24"
-            fi
-            
-            if [[ "$DATABASE_URL" == *"#"* ]]; then
-              echo "⚠️  Possible issue: # symbol in password needs to be encoded as %23"
-            fi
-            
             exit 1
           fi
 
       - name: Setup Cloud SQL Proxy
         run: |
+          echo "Setting up Cloud SQL Proxy..."
+
           # Download and setup Cloud SQL Proxy
           curl -o cloud_sql_proxy https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64
           chmod +x cloud_sql_proxy
 
-          # Start proxy in background - Update with your actual connection name
-          ./cloud_sql_proxy -instances=${{ secrets.GCP_PROJECT_ID }}:$REGION:psqla=tcp:5432 &
+          # Get the connection name - you need to replace this with your actual values
+          CONNECTION_NAME="${{ secrets.GCP_PROJECT_ID }}:$REGION:${{ secrets.CLOUD_SQL_INSTANCE_NAME }}"
+          echo "Connection name: $CONNECTION_NAME"
 
-          # Wait for proxy to be ready
-          echo "Waiting for Cloud SQL Proxy to be ready..."
-          for i in {1..30}; do
+          # Start proxy in background
+          echo "Starting Cloud SQL Proxy..."
+          ./cloud_sql_proxy -instances=$CONNECTION_NAME=tcp:5432 &
+          PROXY_PID=$!
+          echo "Cloud SQL Proxy started with PID: $PROXY_PID"
+
+          # Wait longer and check more thoroughly
+          echo "Waiting for Cloud SQL Proxy to be ready on port 5432..."
+          for i in {1..60}; do
             if nc -z 127.0.0.1 5432; then
-              echo "✅ Cloud SQL Proxy is ready"
+              echo "✅ Cloud SQL Proxy is ready on port 5432 (attempt $i)"
               break
             fi
-            echo "Attempt $i/30: Waiting for proxy..."
-            sleep 2
+            
+            # Check if proxy process is still running
+            if ! kill -0 $PROXY_PID 2>/dev/null; then
+              echo "❌ Cloud SQL Proxy process died"
+              echo "Checking for error logs..."
+              sleep 1
+              exit 1
+            fi
+            
+            echo "Attempt $i/60: Waiting for proxy... (PID $PROXY_PID still running)"
+            sleep 3
           done
 
-          # Final check
-          if ! nc -z 127.0.0.1 5432; then
-            echo "❌ Cloud SQL Proxy failed to start"
+          # Final comprehensive check
+          if nc -z 127.0.0.1 5432; then
+            echo "✅ Cloud SQL Proxy is successfully running on port 5432"
+            echo "Testing connection with timeout..."
+            timeout 5s bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/5432' && echo "✅ Port 5432 is accepting connections"
+          else
+            echo "❌ Cloud SQL Proxy failed to start on port 5432"
+            echo "Process status:"
+            ps aux | grep cloud_sql_proxy | grep -v grep || echo "No cloud_sql_proxy process found"
+            echo "Network status:"
+            netstat -tlnp | grep 5432 || echo "Nothing listening on port 5432"
+            echo "Checking for any error output..."
+            sleep 2
             exit 1
           fi
 

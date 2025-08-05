@@ -118,7 +118,7 @@ jobs:
             --image $IMAGE_URI \
             --region $REGION \
             --platform managed \
-            --allow-unauthenticated \
+            --vpc-connector=default-run-connector \
             --set-env-vars \
               DATABASE_URL=$DATABASE_URL,
               FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID \

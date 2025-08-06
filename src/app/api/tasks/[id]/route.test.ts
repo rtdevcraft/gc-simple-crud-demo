@@ -1,4 +1,3 @@
-// Complete and final working test file
 import { prisma } from '@/lib/prisma'
 import { NextRequest } from 'next/server'
 
@@ -22,6 +21,17 @@ jest.mock('@/lib/prisma', () => ({
       delete: jest.fn(),
     },
   },
+}))
+
+jest.mock('@/lib/logger', () => ({
+  child: jest.fn(() => ({
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  })),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
 }))
 
 jest.mock('next/server', () => {
@@ -53,27 +63,27 @@ const createMockRequest = (
 
 // --- TESTS ---
 describe('/api/tasks/[id] - API Endpoints', () => {
+  const mockTask = {
+    id: 1,
+    text: 'Test Task',
+    completed: false,
+    authorId: 'user123',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+
   beforeEach(() => {
     jest.clearAllMocks()
+    mockVerifyIdToken.mockResolvedValue({ uid: 'user123' })
   })
 
   // --- GET Tests ---
   describe('GET', () => {
     it('should retrieve a task successfully', async () => {
       const { GET } = await import('./route')
-      mockVerifyIdToken.mockResolvedValue({ uid: 'user123' })
+      ;(prisma.task.findUnique as jest.Mock).mockResolvedValue(mockTask)
 
-      const myTask = {
-        id: 1,
-        text: 'My specific task',
-        authorId: 'user123',
-        completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      ;(prisma.task.findUnique as jest.Mock).mockResolvedValue(myTask)
-
-      const request = createMockRequest('http://localhost:3000/api/tasks/1', {
+      const request = createMockRequest('http://localhost/api/tasks/1', {
         headers: { Authorization: 'Bearer valid-token' },
       })
 
@@ -81,47 +91,41 @@ describe('/api/tasks/[id] - API Endpoints', () => {
       const data = await response.json()
 
       expect(response.status).toBe(200)
-      expect(data).toEqual(JSON.parse(JSON.stringify(myTask)))
+      expect(data).toEqual(JSON.parse(JSON.stringify(mockTask)))
     })
 
-    it("should return 404 when user tries to get someone else's task", async () => {
+    it("should return 403 when user tries to get someone else's task", async () => {
       const { GET } = await import('./route')
-      mockVerifyIdToken.mockResolvedValue({ uid: 'user123' })
+      ;(prisma.task.findUnique as jest.Mock).mockResolvedValue({
+        ...mockTask,
+        authorId: 'another-user',
+      })
 
-      const otherUsersTask = {
-        id: 2,
-        text: "Someone else's task",
-        authorId: 'different-user',
-        completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      ;(prisma.task.findUnique as jest.Mock).mockResolvedValue(otherUsersTask)
-
-      const request = createMockRequest('http://localhost:3000/api/tasks/2', {
+      const request = createMockRequest('http://localhost/api/tasks/1', {
         headers: { Authorization: 'Bearer valid-token' },
       })
 
-      const response = await GET(request, { params: { id: '2' } })
+      const response = await GET(request, { params: { id: '1' } })
       const data = await response.json()
 
-      expect(response.status).toBe(404)
-      expect(data.error).toBe('Task not found or access denied')
+      // Expect 403 Forbidden, not 404
+      expect(response.status).toBe(403)
+      // Check for the new error message format
+      expect(data.message).toBe('Access denied.')
     })
 
     it('should return 401 for GET when unauthorized', async () => {
       const { GET } = await import('./route')
       mockVerifyIdToken.mockRejectedValue(new Error('Invalid token'))
 
-      const request = createMockRequest('http://localhost:3000/api/tasks/1', {
-        headers: { Authorization: 'Bearer invalid-token' },
-      })
+      const request = createMockRequest('http://localhost/api/tasks/1')
 
       const response = await GET(request, { params: { id: '1' } })
       const data = await response.json()
 
       expect(response.status).toBe(401)
-      expect(data.error).toBe('Unauthorized')
+      // Check for the new error message format
+      expect(data.message).toContain('Unauthorized')
     })
   })
 
@@ -129,90 +133,74 @@ describe('/api/tasks/[id] - API Endpoints', () => {
   describe('PATCH', () => {
     it('should update a task successfully', async () => {
       const { PATCH } = await import('./route')
-      mockVerifyIdToken.mockResolvedValue({ uid: 'user123' })
+      const updatedData = { text: 'Updated Text', completed: true }
+      ;(prisma.task.findUnique as jest.Mock).mockResolvedValue(mockTask)
+      ;(prisma.task.update as jest.Mock).mockResolvedValue({
+        ...mockTask,
+        ...updatedData,
+      })
 
-      const originalTask = {
-        id: 1,
-        text: 'Original Text',
-        authorId: 'user123',
-        completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      ;(prisma.task.findUnique as jest.Mock).mockResolvedValue(originalTask)
-
-      const updatedTask = {
-        ...originalTask,
-        text: 'Updated Text',
-        completed: true,
-      }
-      ;(prisma.task.update as jest.Mock).mockResolvedValue(updatedTask)
-
-      const request = createMockRequest('http://localhost:3000/api/tasks/1', {
+      const request = createMockRequest('http://localhost/api/tasks/1', {
         method: 'PATCH',
         headers: {
           Authorization: 'Bearer valid-token',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text: 'Updated Text', completed: true }),
+        body: JSON.stringify(updatedData),
       })
 
       const response = await PATCH(request, { params: { id: '1' } })
       const data = await response.json()
 
       expect(response.status).toBe(200)
-      expect(data).toEqual(JSON.parse(JSON.stringify(updatedTask)))
+      expect(data.text).toBe(updatedData.text)
+      expect(data.completed).toBe(updatedData.completed)
     })
 
     it('should return 404 when task is not found', async () => {
       const { PATCH } = await import('./route')
-      mockVerifyIdToken.mockResolvedValue({ uid: 'user123' })
       ;(prisma.task.findUnique as jest.Mock).mockResolvedValue(null)
 
-      const request = createMockRequest('http://localhost:3000/api/tasks/999', {
+      const request = createMockRequest('http://localhost/api/tasks/999', {
         method: 'PATCH',
         headers: {
           Authorization: 'Bearer valid-token',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text: 'Updated Text' }),
+        body: JSON.stringify({ text: 'does not matter' }),
       })
 
       const response = await PATCH(request, { params: { id: '999' } })
       const data = await response.json()
 
       expect(response.status).toBe(404)
-      expect(data.error).toBe('Task not found or access denied')
+      // Check for the new error message format
+      expect(data.message).toBe('Task not found.')
     })
 
-    it("should return 404 when user tries to update someone else's task", async () => {
+    it("should return 403 when user tries to update someone else's task", async () => {
       const { PATCH } = await import('./route')
-      mockVerifyIdToken.mockResolvedValue({ uid: 'user123' })
+      ;(prisma.task.findUnique as jest.Mock).mockResolvedValue({
+        ...mockTask,
+        authorId: 'another-user',
+      })
 
-      const otherUsersTask = {
-        id: 1,
-        text: 'Original Text',
-        authorId: 'different-user',
-        completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      ;(prisma.task.findUnique as jest.Mock).mockResolvedValue(otherUsersTask)
-
-      const request = createMockRequest('http://localhost:3000/api/tasks/1', {
+      const request = createMockRequest('http://localhost/api/tasks/1', {
         method: 'PATCH',
         headers: {
           Authorization: 'Bearer valid-token',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text: 'Updated Text' }),
+        body: JSON.stringify({ text: 'new text' }),
       })
 
       const response = await PATCH(request, { params: { id: '1' } })
       const data = await response.json()
 
-      expect(response.status).toBe(404)
-      expect(data.error).toBe('Task not found or access denied')
+      // Expect 403 Forbidden, not 404
+      expect(response.status).toBe(403)
+      // Check for the new error message format
+      expect(data.message).toBe('Access denied.')
     })
   })
 
@@ -220,20 +208,10 @@ describe('/api/tasks/[id] - API Endpoints', () => {
   describe('DELETE', () => {
     it('should delete a task successfully', async () => {
       const { DELETE } = await import('./route')
-      mockVerifyIdToken.mockResolvedValue({ uid: 'user123' })
+      ;(prisma.task.findUnique as jest.Mock).mockResolvedValue(mockTask)
+      ;(prisma.task.delete as jest.Mock).mockResolvedValue(mockTask)
 
-      const myTask = {
-        id: 1,
-        text: 'Task to Delete',
-        authorId: 'user123',
-        completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      ;(prisma.task.findUnique as jest.Mock).mockResolvedValue(myTask)
-      ;(prisma.task.delete as jest.Mock).mockResolvedValue(myTask)
-
-      const request = createMockRequest('http://localhost:3000/api/tasks/1', {
+      const request = createMockRequest('http://localhost/api/tasks/1', {
         method: 'DELETE',
         headers: { Authorization: 'Bearer valid-token' },
       })
@@ -241,30 +219,30 @@ describe('/api/tasks/[id] - API Endpoints', () => {
       const response = await DELETE(request, { params: { id: '1' } })
 
       expect(response.status).toBe(204)
+      expect(prisma.task.delete).toHaveBeenCalledWith({ where: { id: 1 } })
     })
 
     it('should return 401 for DELETE when unauthorized', async () => {
       const { DELETE } = await import('./route')
       mockVerifyIdToken.mockRejectedValue(new Error('Invalid token'))
 
-      const request = createMockRequest('http://localhost:3000/api/tasks/1', {
+      const request = createMockRequest('http://localhost/api/tasks/1', {
         method: 'DELETE',
-        headers: { Authorization: 'Bearer invalid-token' },
       })
 
       const response = await DELETE(request, { params: { id: '1' } })
       const data = await response.json()
 
       expect(response.status).toBe(401)
-      expect(data.error).toBe('Unauthorized')
+      // Check for the new error message format
+      expect(data.message).toContain('Unauthorized')
     })
 
     it('should return 404 for DELETE when task is not found', async () => {
       const { DELETE } = await import('./route')
-      mockVerifyIdToken.mockResolvedValue({ uid: 'user123' })
       ;(prisma.task.findUnique as jest.Mock).mockResolvedValue(null)
 
-      const request = createMockRequest('http://localhost:3000/api/tasks/999', {
+      const request = createMockRequest('http://localhost/api/tasks/999', {
         method: 'DELETE',
         headers: { Authorization: 'Bearer valid-token' },
       })
@@ -273,24 +251,18 @@ describe('/api/tasks/[id] - API Endpoints', () => {
       const data = await response.json()
 
       expect(response.status).toBe(404)
-      expect(data.error).toBe('Task not found or access denied')
+      // Check for the new error message format
+      expect(data.message).toBe('Task not found.')
     })
 
-    it("should return 404 for DELETE when user tries to delete someone else's task", async () => {
+    it("should return 403 for DELETE when user tries to delete someone else's task", async () => {
       const { DELETE } = await import('./route')
-      mockVerifyIdToken.mockResolvedValue({ uid: 'user123' })
+      ;(prisma.task.findUnique as jest.Mock).mockResolvedValue({
+        ...mockTask,
+        authorId: 'another-user',
+      })
 
-      const otherUsersTask = {
-        id: 1,
-        text: "Someone else's task",
-        authorId: 'different-user',
-        completed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      ;(prisma.task.findUnique as jest.Mock).mockResolvedValue(otherUsersTask)
-
-      const request = createMockRequest('http://localhost:3000/api/tasks/1', {
+      const request = createMockRequest('http://localhost/api/tasks/1', {
         method: 'DELETE',
         headers: { Authorization: 'Bearer valid-token' },
       })
@@ -298,8 +270,10 @@ describe('/api/tasks/[id] - API Endpoints', () => {
       const response = await DELETE(request, { params: { id: '1' } })
       const data = await response.json()
 
-      expect(response.status).toBe(404)
-      expect(data.error).toBe('Task not found or access denied')
+      // Expect 403 Forbidden, not 404
+      expect(response.status).toBe(403)
+      // Check for the new error message format
+      expect(data.message).toBe('Access denied.')
     })
   })
 })

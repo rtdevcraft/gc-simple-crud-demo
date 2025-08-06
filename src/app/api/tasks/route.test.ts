@@ -13,7 +13,6 @@ jest.mock('firebase-admin/auth', () => ({
   })),
 }))
 
-// Add the user model and upsert method to the mock
 jest.mock('@/lib/prisma', () => ({
   prisma: {
     task: {
@@ -24,6 +23,18 @@ jest.mock('@/lib/prisma', () => ({
       upsert: jest.fn(),
     },
   },
+}))
+
+// Mock the logger to prevent logs from cluttering test output
+jest.mock('@/lib/logger', () => ({
+  child: jest.fn(() => ({
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  })),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
 }))
 
 jest.mock('next/server', () => {
@@ -59,6 +70,9 @@ describe('/api/tasks - API Endpoints', () => {
     jest.clearAllMocks()
   })
 
+  // Define the mock context object once
+  const mockContext = { params: {} }
+
   // --- GET Tests ---
   describe('GET', () => {
     it('should retrieve all tasks for a user', async () => {
@@ -75,7 +89,8 @@ describe('/api/tasks - API Endpoints', () => {
         headers: { Authorization: 'Bearer valid-token' },
       })
 
-      const response = await GET(request)
+      // Pass the mock context as the second argument
+      const response = await GET(request, mockContext)
       const data = await response.json()
 
       expect(response.status).toBe(200)
@@ -90,13 +105,17 @@ describe('/api/tasks - API Endpoints', () => {
       const { GET } = await import('./route')
       mockVerifyIdToken.mockRejectedValue(new Error('Invalid token'))
 
-      const request = createMockRequest('http://localhost:3000/api/tasks')
+      const request = createMockRequest('http://localhost:3000/api/tasks', {
+        headers: { Authorization: 'Bearer invalid-token' },
+      })
 
-      const response = await GET(request)
+      // Pass the mock context as the second argument
+      const response = await GET(request, mockContext)
       const data = await response.json()
 
       expect(response.status).toBe(401)
-      expect(data.error).toBe('Unauthorized')
+      // Check for the new error message format
+      expect(data.message).toContain('Unauthorized')
     })
   })
 
@@ -109,8 +128,6 @@ describe('/api/tasks - API Endpoints', () => {
         uid: userId,
         email: `user-${userId}@example.com`,
       })
-
-      // FIX: Mock the new user upsert call
       ;(prisma.user.upsert as jest.Mock).mockResolvedValue({
         id: userId,
         email: `user-${userId}@example.com`,
@@ -136,13 +153,12 @@ describe('/api/tasks - API Endpoints', () => {
         body: JSON.stringify(newTaskData),
       })
 
-      const response = await POST(request)
+      // Pass the mock context as the second argument
+      const response = await POST(request, mockContext)
       const data = await response.json()
 
       expect(response.status).toBe(201)
       expect(data).toEqual(JSON.parse(JSON.stringify(createdTask)))
-
-      // Verify user upsert was called correctly
       expect(prisma.user.upsert).toHaveBeenCalledWith({
         where: { id: userId },
         update: {},
@@ -151,8 +167,6 @@ describe('/api/tasks - API Endpoints', () => {
           email: `user-${userId}@example.com`,
         },
       })
-
-      // Verify task creation was called correctly
       expect(prisma.task.create).toHaveBeenCalledWith({
         data: {
           text: newTaskData.text,
@@ -174,12 +188,13 @@ describe('/api/tasks - API Endpoints', () => {
         body: JSON.stringify({}), // Empty body
       })
 
-      const response = await POST(request)
+      // Pass the mock context as the second argument
+      const response = await POST(request, mockContext)
       const data = await response.json()
 
       expect(response.status).toBe(400)
-      // Update expected error message to match new code
-      expect(data.error).toBe('Invalid task text')
+      // Check for the new error message format
+      expect(data.message).toBe('Invalid task text.')
     })
   })
 })

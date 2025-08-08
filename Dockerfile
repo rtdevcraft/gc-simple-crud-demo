@@ -1,29 +1,28 @@
+# Simple working Dockerfile
 FROM node:20-alpine
+
+WORKDIR /app
 
 # Install system dependencies
 RUN apk add --no-cache libc6-compat
 
-WORKDIR /app
-
-# Copy package files
+# Copy package files and install ALL dependencies (including dev)
 COPY package*.json ./
-
-# Install dependencies
 RUN npm ci
 
-# Copy source code
+# Copy all source files
 COPY . .
 
-# Build arguments
+# Build arguments (these come from --set-build-env-vars)
 ARG NEXT_PUBLIC_FIREBASE_API_KEY
-ARG NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN  
+ARG NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
 ARG NEXT_PUBLIC_FIREBASE_PROJECT_ID
 ARG NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
 ARG NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
 ARG NEXT_PUBLIC_FIREBASE_APP_ID
 ARG DATABASE_URL
 
-# Set environment variables
+# Set as environment variables
 ENV NEXT_PUBLIC_FIREBASE_API_KEY=$NEXT_PUBLIC_FIREBASE_API_KEY
 ENV NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
 ENV NEXT_PUBLIC_FIREBASE_PROJECT_ID=$NEXT_PUBLIC_FIREBASE_PROJECT_ID
@@ -31,6 +30,8 @@ ENV NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
 ENV NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
 ENV NEXT_PUBLIC_FIREBASE_APP_ID=$NEXT_PUBLIC_FIREBASE_APP_ID
 ENV DATABASE_URL=$DATABASE_URL
+
+# Set Node environment
 ENV NODE_ENV=production
 
 # Generate Prisma client
@@ -39,12 +40,8 @@ RUN npx prisma generate
 # Build the application
 RUN npm run build
 
-# Create non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-USER nextjs
-
+# Expose port
 EXPOSE 3000
 
-# Start the application
+# Start command
 CMD ["npm", "start"]

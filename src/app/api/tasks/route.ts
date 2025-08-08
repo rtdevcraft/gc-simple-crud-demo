@@ -9,7 +9,7 @@ import { HttpError } from '@/lib/errors'
 initializeFirebaseAdmin()
 
 // --- GET Handler ---
-// Changed 'params: {}' to '_params: object'
+
 const getTasks = async (
   req: NextRequest,
   _params: object,
@@ -23,7 +23,7 @@ const getTasks = async (
 }
 
 // --- POST Handler ---
-// Changed 'params: {}' to '_params: object'
+
 const createTask = async (
   req: NextRequest,
   _params: object,

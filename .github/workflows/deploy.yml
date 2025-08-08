@@ -2,23 +2,29 @@ name: Build and Deploy to Cloud Run
 
 on:
   push:
-    branches: ['master']
+    branches: ['main']
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: gc-simple-crud-demo
   REGION: us-central1
-  AR_REPOSITORY: simple-crud-demo
-  AR_LOCATION: us-west4
+  CLOUD_SQL_INSTANCE_NAME: ${{ secrets.CLOUD_SQL_INSTANCE_NAME }}
 
 jobs:
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
-
     permissions:
       contents: 'read'
       id-token: 'write'
+
+    env:
+      NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+      NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
 
     steps:
       - name: Checkout code
@@ -32,6 +38,11 @@ jobs:
 
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Setup Cloud SQL Proxy
+        uses: google-github-actions/setup-cloud-sql-proxy@v2
+        with:
+          instance_connection_string: ${{ env.PROJECT_ID }}:${{ env.REGION }}:${{ env.CLOUD_SQL_INSTANCE_NAME }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -47,83 +58,23 @@ jobs:
 
       - name: Build Next.js Application
         env:
-          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
-          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
-          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
-          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
-          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          npm run build
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PROXY }}
+        run: npm run build
 
-          if [ ! -f ".next/standalone/server.js" ]; then
-            echo "❌ Standalone build failed"
-            exit 1
-          fi
-
-      - name: Setup Cloud SQL Proxy
-        run: |
-          curl -o cloud_sql_proxy https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64
-          chmod +x cloud_sql_proxy
-
-          CONNECTION_NAME="${{ secrets.GCP_PROJECT_ID }}:$REGION:${{ secrets.CLOUD_SQL_INSTANCE_NAME }}"
-
-          nohup ./cloud_sql_proxy -instances=$CONNECTION_NAME=tcp:5432 -verbose > cloud_sql_proxy.log 2>&1 &
-          PROXY_PID=$!
-
-          sleep 5
-
-          if ! kill -0 $PROXY_PID 2>/dev/null; then
-            echo "❌ Cloud SQL Proxy failed to start"
-            exit 1
-          fi
-
-          nc -z 127.0.0.1 5432 || exit 1
-
-      - name: Configure Docker for Artifact Registry
-        run: |
-          gcloud auth configure-docker $AR_LOCATION-docker.pkg.dev
-
-      - name: Build and Push to Artifact Registry
-        env:
-          IMAGE_TAG: ${{ github.sha }}
-          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
-          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
-          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
-          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
-          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
-        run: |
-          IMAGE_URI=$AR_LOCATION-docker.pkg.dev/$PROJECT_ID/$AR_REPOSITORY/$SERVICE_NAME:$IMAGE_TAG
-
-          docker build \
-            --build-arg NEXT_PUBLIC_FIREBASE_API_KEY="$NEXT_PUBLIC_FIREBASE_API_KEY" \
-            --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN" \
-            --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID="$NEXT_PUBLIC_FIREBASE_PROJECT_ID" \
-            --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET" \
-            --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID" \
-            --build-arg NEXT_PUBLIC_FIREBASE_APP_ID="$NEXT_PUBLIC_FIREBASE_APP_ID" \
-            -t $IMAGE_URI .
-
-          docker push $IMAGE_URI
-          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
-
-      - name: Deploy to Cloud Run
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - name: Build and Deploy to Cloud Run via Source
         run: |
           gcloud run deploy $SERVICE_NAME \
-            --image $IMAGE_URI \
+            --source . \
             --region $REGION \
             --platform managed \
             --vpc-connector=cloud-function-connector \
             --vpc-egress=all-traffic \
-            --set-env-vars="DATABASE_URL=$DATABASE_URL,FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID" \
+            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }},NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }},NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }},NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }},NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }},NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}" \
             --memory=1Gi \
             --cpu=1 \
             --max-instances=10 \
             --port=3000 \
+            --allow-unauthenticated \
             --quiet
 
           SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format="value(status.url)")

@@ -87,9 +87,5 @@ ENV HOSTNAME="0.0.0.0"
 # Expose application port
 EXPOSE 3000
 
-# Simplified health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q -O /dev/null http://localhost:3000/api/health || exit 1
-
 # Startup command
 CMD ["node", "server.js"]

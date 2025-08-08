@@ -51,6 +51,15 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
+      - name: Debug - Check project structure
+        run: |
+          echo "=== Project Structure ==="
+          ls -la
+          echo "=== Package.json scripts ==="
+          cat package.json | grep -A 10 '"scripts"'
+          echo "=== Check for Dockerfile ==="
+          ls -la Dockerfile || echo "No Dockerfile found"
+
       - name: Build Next.js Application
         run: npm run build
 
@@ -62,13 +71,13 @@ jobs:
             --platform managed \
             --vpc-connector=cloud-function-connector \
             --vpc-egress=all-traffic \
-            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }},NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }},NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }},NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }},NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }},NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}" \
+            --set-build-env-vars="NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }},NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }},NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }},NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }},NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }},NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }},DATABASE_URL=${{ secrets.DATABASE_URL }}" \
+            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }}" \
             --memory=1Gi \
             --cpu=1 \
             --max-instances=10 \
             --port=3000 \
-            --allow-unauthenticated \
-            --quiet
+            --allow-unauthenticated
 
           SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format="value(status.url)")
           echo "🚀 Service deployed at: $SERVICE_URL"

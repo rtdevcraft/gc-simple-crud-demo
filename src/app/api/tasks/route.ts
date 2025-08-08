@@ -1,5 +1,3 @@
-// src/app/api/tasks/route.ts
-
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { initializeFirebaseAdmin } from '@/lib/firebase-admin'
@@ -9,7 +7,7 @@ import { HttpError } from '@/lib/errors'
 initializeFirebaseAdmin()
 
 // --- GET Handler ---
-// Changed 'params: {}' to '_params: object'
+
 const getTasks = async (
   req: NextRequest,
   _params: object,
@@ -23,7 +21,7 @@ const getTasks = async (
 }
 
 // --- POST Handler ---
-// Changed 'params: {}' to '_params: object'
+
 const createTask = async (
   req: NextRequest,
   _params: object,

@@ -39,11 +39,6 @@ jobs:
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Setup Cloud SQL Proxy
-        uses: google-github-actions/setup-cloud-sql-proxy@v2
-        with:
-          instance_connection_string: ${{ env.PROJECT_ID }}:${{ env.REGION }}:${{ env.CLOUD_SQL_INSTANCE_NAME }}
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -57,8 +52,6 @@ jobs:
         run: npx prisma generate
 
       - name: Build Next.js Application
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL_PROXY }}
         run: npm run build
 
       - name: Build and Deploy to Cloud Run via Source

@@ -30,6 +30,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Debug Firebase Configuration
+        run: |
+          echo "Firebase Project ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}"
+          echo "API Key Length: ${#NEXT_PUBLIC_FIREBASE_API_KEY}"
+          echo "API Key First 5 Chars: ${NEXT_PUBLIC_FIREBASE_API_KEY:0:5}"
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:

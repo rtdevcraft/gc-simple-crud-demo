@@ -14,7 +14,6 @@ async function findAndAuthorizeTask(taskId: number, userId: string) {
     throw new HttpError(404, 'Task not found.')
   }
   if (task.authorId !== userId) {
-    // 403 Forbidden is more accurate than 404 for an unauthorized access attempt
     throw new HttpError(403, 'Access denied.')
   }
   return task
@@ -22,7 +21,7 @@ async function findAndAuthorizeTask(taskId: number, userId: string) {
 
 // --- GET Handler ---
 const getTask = async (
-  _req: NextRequest, // Renamed to _req since it's unused
+  _req: NextRequest,
   { params }: RouteContext,
   auth: { userId: string }
 ) => {
@@ -35,7 +34,7 @@ const getTask = async (
 
 // --- PATCH Handler ---
 const updateTask = async (
-  req: NextRequest, // 'req' is used here to get the body
+  req: NextRequest,
   { params }: RouteContext,
   auth: { userId: string }
 ) => {
@@ -55,7 +54,7 @@ const updateTask = async (
 
 // --- DELETE Handler ---
 const deleteTask = async (
-  _req: NextRequest, // Renamed to _req since it's unused
+  _req: NextRequest,
   { params }: RouteContext,
   auth: { userId: string }
 ) => {

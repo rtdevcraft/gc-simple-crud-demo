@@ -35,7 +35,6 @@ export function withAuthentication(
       const decodedToken = await getAuth().verifyIdToken(token)
       return handler(req, context, { userId: decodedToken.uid })
     } catch {
-      // The original 'error' variable was unused, so we can omit it.
       throw new HttpError(401, 'Unauthorized: Invalid token.')
     }
   }
@@ -49,7 +48,6 @@ export function withErrorHandler(
     const traceHeader = req.headers.get('x-cloud-trace-context')
     const [trace] = traceHeader ? traceHeader.split('/') : [null]
 
-    // Use NEXT_PUBLIC_FIREBASE_PROJECT_ID since it's already available at runtime from the build.
     const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
 
     const requestLogger = logger.child(

@@ -1,4 +1,6 @@
 steps:
+  # This step builds the Docker image using the instructions in your Dockerfile.
+
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
@@ -14,11 +16,12 @@ steps:
       - 'NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${_NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}'
       - '--build-arg'
       - 'NEXT_PUBLIC_FIREBASE_APP_ID=${_NEXT_PUBLIC_FIREBASE_APP_ID}'
-      # Tag the image with the commit SHA for traceability
+      # Tag the image with the project, service name, and unique commit SHA
       - '-t'
-      - 'gcr.io/$PROJECT_ID/$SERVICE_NAME:${_COMMIT_SHA}'
+      - 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:${_COMMIT_SHA}'
+      # Use the Dockerfile in the current directory
       - '.'
 
-# Push the final, tagged image to the Artifact Registry
+# This instruction pushes the newly built and tagged image to Google Artifact Registry.
 images:
-  - 'gcr.io/$PROJECT_ID/$SERVICE_NAME:${_COMMIT_SHA}'
+  - 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:${_COMMIT_SHA}'

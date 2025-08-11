@@ -8,7 +8,6 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: gc-simple-crud-demo
   REGION: us-central1
-  CLOUD_SQL_INSTANCE_NAME: ${{ secrets.CLOUD_SQL_INSTANCE_NAME }}
 
 jobs:
   deploy:
@@ -18,23 +17,9 @@ jobs:
       contents: 'read'
       id-token: 'write'
 
-    env:
-      NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
-      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
-      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
-      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
-      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
-      NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Debug Firebase Configuration
-        run: |
-          echo "Firebase Project ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}"
-          echo "API Key Length: ${#NEXT_PUBLIC_FIREBASE_API_KEY}"
-          echo "API Key First 5 Chars: ${NEXT_PUBLIC_FIREBASE_API_KEY:0:5}"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -45,37 +30,28 @@ jobs:
       - name: Setup gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
+      - name: 🔨 Build Container Image
+        id: build
+        run: |
+          gcloud builds submit . \
+            --config=cloudbuild.yaml \
+            --substitutions=_COMMIT_SHA='${{ github.sha }}',_NEXT_PUBLIC_FIREBASE_API_KEY='${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}',_NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN='${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}',_NEXT_PUBLIC_FIREBASE_PROJECT_ID='${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}',_NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET='${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}',_NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID='${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}',_NEXT_PUBLIC_FIREBASE_APP_ID='${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}'
 
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Generate Prisma Client
-        run: npx prisma generate
-
-      - name: Build Next.js Application
-        run: npm run build --verbose
-
-      - name: Build and Deploy to Cloud Run via Source
+      - name: 🚀 Deploy Container to Cloud Run
+        id: deploy
         run: |
           gcloud run deploy $SERVICE_NAME \
-            --source . \
+            --image gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }} \
             --region $REGION \
             --platform managed \
-            --vpc-connector=cloud-function-connector \
-            --vpc-egress=all-traffic \
-            --set-build-env-vars="NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }},NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }},NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }},NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }},NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }},NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }},DATABASE_URL=${{ secrets.DATABASE_URL }}" \
             --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }}" \
-            --verbosity=debug \
             --memory=1Gi \
             --cpu=1 \
             --max-instances=10 \
             --port=3000 \
             --allow-unauthenticated
 
+      - name: Show Service URL
+        run: |
           SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format="value(status.url)")
-          echo "🚀 Service deployed at: $SERVICE_URL"
+          echo "✅ Service deployed at: $SERVICE_URL"

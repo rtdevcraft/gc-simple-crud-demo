@@ -1,0 +1,19 @@
+
+
+# Ignore dependency directories and local build artifacts
+node_modules
+.next
+
+# Ignore local environment files and secrets
+.env
+.env*.local
+
+# Ignore version control and CI/CD directories
+.git
+.github
+.vercel
+
+# Ignore miscellaneous files
+.DS_Store
+npm-debug.log*
+README.md

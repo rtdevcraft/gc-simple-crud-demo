@@ -1,47 +1,51 @@
-# Simple working Dockerfile
-FROM node:20-alpine
 
+
+# Stage 1: The "Builder"
+# This stage still uses a full Node.js environment to build the app.
+FROM node:20-slim AS builder
 WORKDIR /app
 
-# Install system dependencies
-RUN apk add --no-cache libc6-compat
-
-# Copy package files and install ALL dependencies (including dev)
 COPY package*.json ./
 RUN npm ci
 
-# Copy all source files
 COPY . .
 
-# Build arguments (these come from --set-build-env-vars)
+# Pass in build-time arguments
 ARG NEXT_PUBLIC_FIREBASE_API_KEY
 ARG NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
 ARG NEXT_PUBLIC_FIREBASE_PROJECT_ID
 ARG NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
 ARG NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
 ARG NEXT_PUBLIC_FIREBASE_APP_ID
-ARG DATABASE_URL
 
-# Set as environment variables
+# Set environment variables for the build
 ENV NEXT_PUBLIC_FIREBASE_API_KEY=$NEXT_PUBLIC_FIREBASE_API_KEY
 ENV NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
 ENV NEXT_PUBLIC_FIREBASE_PROJECT_ID=$NEXT_PUBLIC_FIREBASE_PROJECT_ID
 ENV NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
 ENV NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
 ENV NEXT_PUBLIC_FIREBASE_APP_ID=$NEXT_PUBLIC_FIREBASE_APP_ID
-ENV DATABASE_URL=$DATABASE_URL
 
-# Set Node environment
-ENV NODE_ENV=production
-
-# Generate Prisma client
 RUN npx prisma generate
-
-# Build the application
 RUN npm run build
 
-# Expose port
-EXPOSE 3000
 
-# Start command
-CMD ["npm", "start"]
+# Stage 2: The "Runner"
+# This is the final, highly secure, distroless image.
+FROM gcr.io/distroless/nodejs20-debian12 AS runner
+WORKDIR /app
+
+# Distroless images come with a non-root user 'nonroot' by default.
+# We set permissions and user for this standard user.
+USER nonroot
+
+# Copy only the necessary, compiled files from the builder stage
+COPY --from=builder --chown=nonroot:nonroot /app/.next/standalone ./
+COPY --from=builder --chown=nonroot:nonroot /app/public ./public
+COPY --from=builder --chown=nonroot:nonroot /app/.next/static ./.next/static
+
+EXPOSE 3000
+ENV PORT 3000
+
+# Command to start the optimized Next.js server
+CMD ["server.js"]
